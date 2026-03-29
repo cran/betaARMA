@@ -1,0 +1,114 @@
+#' @title Create Link Function Structure for BARMA Models
+#'
+#' @description
+#' A helper function that constructs a list containing the link function, its
+#' inverse, and the derivative of the mean function. It extends the standard
+#' `make.link` by adding support for the "loglog" link.
+#'
+#' @details
+#' This function is primarily used internally by the `barma()` function to
+#' process the `link` argument. It standardizes the way link functions are
+#' handled within the model fitting process.
+#'
+#' For the "logit", "probit", and "cloglog" links, the function acts as a
+#' wrapper around the base R `make.link`.
+#'
+#' For the "loglog" link, which is not available in `make.link`, the
+#' necessary components are defined explicitly:
+#' \itemize{
+#'   \item Link function: \eqn{g(\mu) = -\log(-\log(\mu))}
+#'   \item Inverse link function: \eqn{g^{-1}(\eta) = \exp(-\exp(-\eta))}
+#'   \item Derivative \eqn{\frac{d\mu}{d\eta}}: \eqn{\exp(-\exp(-\eta)) \times \exp(-\eta)}
+#' }
+#'
+#' If an unsupported link is provided, the function will stop and return an
+#' error message listing the available options.
+#'
+#' @param link A character string specifying the name of the link function.
+#'             Accepted values are `"logit"`, `"probit"`, `"cloglog"`, and
+#'             `"loglog"`.
+#'
+#' @importFrom stats make.link
+#'
+#' @return A list with three components:
+#' \item{linkfun}{The link function, which transforms the mean \eqn{\mu \in (0,1)} to the linear predictor \eqn{\eta \in (-\infty, \infty)}.}
+#' \item{linkinv}{The inverse link function, which transforms the linear predictor \eqn{\eta} back to the mean \eqn{\mu}.}
+#' \item{mu.eta}{The derivative of the inverse link function with respect to \eqn{\eta}, i.e., \eqn{\frac{d\mu}{d\eta}}.}
+#'
+#' @author
+#' Original R code by: Fabio M. Bayer (Federal University of Santa Maria, <bayer@ufsm.br>)
+#' Modified and improved by: Everton da Costa (Federal University of Pernambuco, <everto.cost@gmail.com>)
+#'
+#' @seealso \code{\link{barma}}, \code{\link[stats]{make.link}}
+#'
+#' @examples
+#' # --- Create a logit link structure ---
+#' logit_link <- make_link_structure(link = "logit")
+#'
+#' # Apply the link function
+#' mu <- 0.5
+#' eta <- logit_link$linkfun(mu)
+#' print(eta) # Should be 0
+#'
+#' # Apply the inverse link function
+#' mu_restored <- logit_link$linkinv(eta)
+#' print(mu_restored) # Should be 0.5
+#'
+#' # --- Create a loglog link structure ---
+#' loglog_link <- make_link_structure(link = "loglog")
+#'
+#' # Apply the loglog link function
+#' mu_loglog <- 0.8
+#' eta_loglog <- loglog_link$linkfun(mu_loglog)
+#' print(eta_loglog)
+#'
+#' # Apply the inverse loglog link function
+#' mu_restored_loglog <- loglog_link$linkinv(eta_loglog)
+#' print(mu_restored_loglog) # Should be ~0.8
+#'
+#' @export
+make_link_structure <- function(link = link){
+
+  # ------------------------------------------------------------------------- #
+  # --- 1. Validate Link Argument ---
+  # ------------------------------------------------------------------------- #
+  
+  # This function now uses standard evaluation.
+  # 'link' is expected to be a simple character string, e.g., "logit".
+  
+  if (!is.character(link) || length(link) != 1) {
+    stop("Argument 'link' must be a single character string.")
+  }
+  
+  # ------------------------------------------------------------------------- #
+  # --- 2. Select Link Structure ---
+  # ------------------------------------------------------------------------- #
+  
+  if (link == "logit") {
+    stats <- make.link("logit")
+  } else if (link == "probit") {
+    stats <- make.link("probit")
+  } else if (link == "cloglog") {
+    stats <- make.link("cloglog")
+  } else if (link == "loglog") {
+    stats <- list()
+    stats$linkfun <- function(mu) -log(-log(mu))
+    stats$linkinv <- function(eta) exp(-exp(-eta))
+    stats$mu.eta <- function(eta) exp(-exp(-eta) - eta)
+  } else {
+    stop(paste(
+      link, "link not available, available links are
+      \"logit\", ", "\"probit\", ", "\"cloglog\" and \"loglog\""
+    ))
+  }
+  
+  # ------------------------------------------------------------------------- #
+  # --- 3. Return Structure ---
+  # ------------------------------------------------------------------------- #
+  
+  # Return the components directly
+  return(list(linkfun = stats$linkfun,
+              linkinv = stats$linkinv,
+              mu.eta = stats$mu.eta))
+
+}
