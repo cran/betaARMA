@@ -4,42 +4,47 @@
 \alias{make_link_structure}
 \title{Create Link Function Structure for BARMA Models}
 \usage{
-make_link_structure(link = link)
+make_link_structure(link = "logit")
 }
 \arguments{
-\item{link}{A character string specifying the name of the link function.
-Accepted values are `"logit"`, `"probit"`, `"cloglog"`, and
-`"loglog"`.}
+\item{link}{A character string specifying the link function.
+Defaults to \code{"logit"}. Accepted values are \code{"logit"},
+\code{"probit"}, \code{"cloglog"}, and \code{"loglog"}.}
 }
 \value{
 A list with three components:
-\item{linkfun}{The link function, which transforms the mean \eqn{\mu \in (0,1)} to the linear predictor \eqn{\eta \in (-\infty, \infty)}.}
-\item{linkinv}{The inverse link function, which transforms the linear predictor \eqn{\eta} back to the mean \eqn{\mu}.}
-\item{mu.eta}{The derivative of the inverse link function with respect to \eqn{\eta}, i.e., \eqn{\frac{d\mu}{d\eta}}.}
+\item{linkfun}{The link function \eqn{g(\mu)}, transforming
+  \eqn{\mu \in (0,1)} to \eqn{\eta \in (-\infty, \infty)}.}
+\item{linkinv}{The inverse link function \eqn{g^{-1}(\eta)},
+  transforming \eqn{\eta} back to \eqn{\mu}.}
+\item{mu.eta}{The derivative \eqn{d\mu/d\eta} of the inverse
+  link function.}
 }
 \description{
-A helper function that constructs a list containing the link function, its
-inverse, and the derivative of the mean function. It extends the standard
-`make.link` by adding support for the "loglog" link.
+A helper function that constructs a list containing the link function,
+its inverse, and the derivative of the mean function. It extends the
+standard \code{make.link} by adding support for the \code{"loglog"} link.
 }
 \details{
-This function is primarily used internally by the `barma()` function to
-process the `link` argument. It standardizes the way link functions are
-handled within the model fitting process.
+This function is used by \code{\link{barma}}, \code{\link{loglik_barma}},
+\code{\link{score_vector_barma}}, and \code{\link{fim_barma}} to handle
+the \code{link} argument in a standardized way. It is also exported for
+users who implement custom workflows.
 
-For the "logit", "probit", and "cloglog" links, the function acts as a
-wrapper around the base R `make.link`.
+For the \code{"logit"}, \code{"probit"}, and \code{"cloglog"} links,
+the function acts as a wrapper around the base R \code{make.link}.
 
-For the "loglog" link, which is not available in `make.link`, the
-necessary components are defined explicitly:
+For the \code{"loglog"} link, which is not available in \code{make.link},
+the necessary components are defined explicitly:
 \itemize{
   \item Link function: \eqn{g(\mu) = -\log(-\log(\mu))}
-  \item Inverse link function: \eqn{g^{-1}(\eta) = \exp(-\exp(-\eta))}
-  \item Derivative \eqn{\frac{d\mu}{d\eta}}: \eqn{\exp(-\exp(-\eta)) \times \exp(-\eta)}
+  \item Inverse link: \eqn{g^{-1}(\eta) = \exp(-\exp(-\eta))}
+  \item Derivative \eqn{\frac{d\mu}{d\eta}}:
+    \eqn{\exp(-\exp(-\eta) - \eta)}
 }
 
-If an unsupported link is provided, the function will stop and return an
-error message listing the available options.
+If an unsupported link is provided, the function stops with an error
+message listing the available options.
 }
 \examples{
 # --- Create a logit link structure ---
@@ -71,6 +76,8 @@ print(mu_restored_loglog) # Should be ~0.8
 \code{\link{barma}}, \code{\link[stats]{make.link}}
 }
 \author{
-Original R code by: Fabio M. Bayer (Federal University of Santa Maria, <bayer@ufsm.br>)
-Modified and improved by: Everton da Costa (Federal University of Pernambuco, <everto.cost@gmail.com>)
+Original R code by Fabio M. Bayer
+(Federal University of Santa Maria, \email{bayer@ufsm.br}).
+Modified and improved by Everton da Costa
+(Federal University of Pernambuco, \email{everto.cost@gmail.com}).
 }

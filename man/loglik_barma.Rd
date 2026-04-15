@@ -7,8 +7,8 @@ Moving Average Models}
 \usage{
 loglik_barma(
   y,
-  ar,
-  ma,
+  ar = integer(0),
+  ma = integer(0),
   alpha,
   varphi,
   theta,
@@ -23,20 +23,24 @@ loglik_barma(
 strictly in (0, 1).}
 
 \item{ar}{A numeric vector specifying the autoregressive (AR) lags
-(e.g., \code{c(1, 2)}). Can be \code{NA} or \code{NULL} if no AR component.}
+(e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+AR component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
 \item{ma}{A numeric vector specifying the moving average (MA) lags
-(e.g., \code{1}). Can be \code{NA} or \code{NULL} if no MA component.}
+(e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+MA component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
 \item{alpha}{The intercept term (numeric scalar).}
 
 \item{varphi}{A numeric vector of autoregressive (AR) parameters.
-Use \code{numeric(0)} or empty vector if no AR component.
-Length must match \code{ar} specification.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{theta}{A numeric vector of moving average (MA) parameters.
-Use \code{numeric(0)} or empty vector if no MA component.
-Length must match \code{ma} specification.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{phi}{The precision parameter of the BARMA model (must be positive and finite).
 Larger values indicate less variance for a given mean.}
@@ -95,51 +99,70 @@ This matches the parameter order used by \code{\link{barma}}.
 }
 \examples{
 \donttest{
-  # Example 1: Log-likelihood for a BAR(1) model
+  # Example 1: Log-likelihood for a BAR(1) model (no MA component)
   set.seed(2025)
-  y_sim_bar <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_bar1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    phi = 25.0,
-    link = "logit",
-    freq = 12
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
   )
 
   loglik_barma(
-    y = y_sim_bar,
-    ar = 1,
-    ma = NA,
-    alpha = 0.0,
+    y      = y_sim_bar1,
+    ar     = 1,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = numeric(0),
-    phi = 25.0,
-    link = "logit"
+    theta  = numeric(0),
+    phi    = 25.0,
+    link   = "logit"
   )
 
-  # Example 2: Log-likelihood for a BARMA(1,1) model
+  # Example 2: Log-likelihood for a BARMA(1, 1) model
   set.seed(2025)
-  y_sim_barma <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_barma11 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = 0.3,
-    phi = 25.0,
-    link = "logit",
-    freq = 12
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
   )
 
   loglik_barma(
-    y = y_sim_barma,
-    ar = 1,
-    ma = 1,
-    alpha = 0.0,
+    y      = y_sim_barma11,
+    ar     = 1,
+    ma     = 1,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = 0.3,
-    phi = 25.0,
-    link = "logit"
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit"
   )
 
+  # Example 3: Log-likelihood for a BMA(1) model (no AR component)
+  set.seed(2025)
+  y_sim_bma1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  loglik_barma(
+    y      = y_sim_bma1,
+    ma     = 1,
+    alpha  = 0.0,
+    varphi = numeric(0),
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit"
+  )
 }
 
 }

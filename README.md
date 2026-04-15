@@ -1,10 +1,19 @@
 # betaARMA: Beta Autoregressive Moving Average Models
 
-[![Status](https://img.shields.io/badge/Status-Active_Development-blue.svg)](https://github.com/Everton-da-Costa/betaARMA)
+[![CRAN status](https://www.r-pkg.org/badges/version/betaARMA)](https://CRAN.R-project.org/package=betaARMA)
+[![CRAN downloads](https://cranlogs.r-pkg.org/badges/betaARMA)](https://CRAN.R-project.org/package=betaARMA)
+[![DOI](https://img.shields.io/badge/DOI-10.32614%2FCRAN.package.betaARMA-blue)](https://doi.org/10.32614/CRAN.package.betaARMA)
 [![R-hub](https://github.com/Everton-da-Costa/betaARMA/actions/workflows/rhub.yaml/badge.svg)](https://github.com/Everton-da-Costa/betaARMA/actions/workflows/rhub.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 This repository contains the R package **`betaARMA`**, a comprehensive toolkit for fitting, forecasting, and simulating Beta Autoregressive Moving Average models. It provides a unified workflow for modeling time series data bounded on the (0, 1) interval, such as rates, proportions, and indices.
+
+---
+
+## What's New in v1.1.0
+* **Advanced Internals Exported:** The core mathematical functions (`loglik_barma()`, `score_vector_barma()`, and `fim_barma()`) are now exported, allowing researchers and advanced users to build custom extensions or extract gradients directly.
+* **Unified Parameter Architecture:** The underlying codebase has been heavily refactored for performance and stability. All functions now strictly adhere to the unified parameter vector order: `(alpha, varphi, theta, beta, phi)`.
+* **Link Function Fixes:** Fixed a bug in the score vector derivation to ensure mathematically accurate inference for all non-logit models (`cloglog`, `loglog`, and `probit`).
 
 ---
 
@@ -86,27 +95,21 @@ The repository is structured as a standard R package for clarity and reproducibi
 
 ---
 
-## Code of Conduct
-
-Please note that the betaARMA project is released with a [Contributor Code of Conduct](https://contributor-covenant.org/version/2/1/CODE_OF_CONDUCT.html). By contributing to this project, you agree to abide by its terms.
-
 ## Installation
 
-You can install the development version of `betaARMA` directly from GitHub.
-
-First, ensure you have the `remotes` package installed:
+### CRAN (Recommended)
+You can install the stable version of `betaARMA` directly from CRAN:
 
 ```R
-if (!require("remotes")) {
-  install.packages("remotes")
-}
+install.packages("betaARMA")
 ```
 
-Then, install the package:
+### Development Version
+You can install the development version from GitHub using the remotes package:
 
 ```R
-remotes::install_github("Everton-da-Costa/betaARMA", 
-                        dependencies = TRUE)
+# install.packages("remotes")
+remotes::install_github("Everton-da-Costa/betaARMA", dependencies = TRUE)
 ```
 
 ---
@@ -118,20 +121,56 @@ Here is a quick example of how to simulate data, fit a model, and generate forec
 ```R
 library(betaARMA)
 
-# 1. Simulate data from a BARMA(1,1) process
-set.seed(123)
-y <- simu_barma(n = 150, ar = 1, ma = 1, varphi = 0.5, theta = 0.3, phi = 20)
+# Example 1: Fit a BAR(1) model
+
+# 1. Simulate data from a BAR(1) process
+set.seed(2025)
+y_sim_bar <- simu_barma(
+  n = 250,
+  alpha = 0.0,
+  varphi = 0.6,
+  phi = 25.0,
+  link = "logit",
+  freq = 12
+)
 
 # 2. Fit the model
-# We assume a fixed precision (phi) and logit link by default
-fit <- barma(y, ar = 1, ma = 1)
+fit_bar <- barma(y_sim_bar, ar = 1, link = "logit")
 
 # 3. Inspect results
-summary(fit)
+summary(fit_bar)
+coef(fit_bar)
 
 # 4. Forecast the next 6 steps
-pred <- forecast(fit, h = 6)
-print(pred)
+pred_bar <- forecast(fit_bar, h = 6)
+print(pred_bar)
+
+
+# Example 2: Fit a BARMA(1,1) model
+
+# 1. Simulate data from a BARMA(1,1) process
+set.seed(2025)
+y_sim_barma <- simu_barma(
+    n = 250,
+    alpha = 0.0,
+    varphi = 0.6, 
+    theta = 0.3, 
+    phi = 25,
+    link = "logit",
+    freq = 12
+)
+
+
+# 2. Fit the model
+fit_barma <- barma(y_sim_barma, ar = 1, ma = 1, link = "logit")
+
+# 3. Inspect results
+summary(fit_barma)
+coef(fit_barma)
+
+# 4. Forecast the next 6 steps
+pred_barma <- forecast(fit_barma, h = 6)
+print(pred_barma)
 ```
 
 ---
@@ -145,11 +184,11 @@ If you use this package in your research, please cite it as follows:
   title = {betaARMA: Beta Autoregressive Moving Average Models},
   author = {Everton da Costa, Francisco Cribari-Neto and Vinícius T. Scher},
   year = {2026},
-  note = {R package version 1.0.0},
-  url = {[https://github.com/Everton-da-Costa/betaARMA](https://github.com/Everton-da-Costa/betaARMA)},
+  note = {R package version 1.0.1},
+  doi = {10.32614/CRAN.package.betaARMA},
+  url = {https://CRAN.R-project.org/package=betaARMA}
 }
 ```
-
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
@@ -164,3 +203,9 @@ For questions, suggestions, or issues related to the code, please contact:
 
 **Everton da Costa**
 📧 <everto.cost@gmail.com>
+
+---
+
+## Code of Conduct
+
+Please note that the betaARMA project is released with a [Contributor Code of Conduct](https://contributor-covenant.org/version/2/1/CODE_OF_CONDUCT.html). By contributing to this project, you agree to abide by its terms.

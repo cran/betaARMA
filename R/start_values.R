@@ -12,337 +12,257 @@
 #' This provides a computationally cheap and stable way to initialize the
 #' main optimization algorithm.
 #'
-#' The specific procedure depends on the model's structure:
-#' \itemize{
-#'   \item For models with autoregressive (AR) terms, the lagged values of
-#'     the transformed series `g(y)` are used as predictors to estimate
-#'     the initial `alpha` (intercept) and `varphi` (AR) coefficients.
-#'   \item If exogenous variables `X` are included, they are added as
-#'     predictors in the linear model to obtain initial `beta` values.
-#'   \item Moving average (MA) coefficients (`theta`) are initialized to zero,
-#'     a standard practice in ARMA model estimation.
-#'   \item The initial value for the precision parameter `phi` is derived
-#'     from the variance of the residuals of the initial linear fit,
-#'     following the methodology from Ferrari & Cribari-Neto (2004).
-#'   \item For a pure BMA model (no AR or X components), a simpler method is
-#'     used where `alpha` is the mean of `g(y)` and `phi` is based on the
-#'     unconditional variance of `y`.
-#' }
-#'
-#' This function is called internally by the main model fitting function
-#' but is exported for standalone use and inspection.
-#'
 #' @author
 #' Original code by Fabio M. Bayer (bayer@ufsm.br).
 #' Substantially modified and improved by Everton da Costa
 #' (everto.cost@gmail.com).
 #'
-#' @references
-#' Ferrari, S. L. P., & Cribari-Neto, F. (2004). Beta regression for
-#' modelling rates and proportions. *Journal of Applied Statistics*,
-#' 31(7), 799-818. <doi:10.1080/0266476042000214501>
-#'
 #' @param y A numeric time series with values in the open interval (0, 1).
-#' @param link A string specifying the link function for the mean, such as
-#'   `"logit"`, `"probit"`, or `"cloglog"`.
-#' @param ar A numeric vector of autoregressive (AR) lags. Defaults to `NA`
-#'   for models without an AR component.
-#' @param ma A numeric vector of moving average (MA) lags. Defaults to `NA`
-#'   for models without an MA component.
-#' @param X An optional numeric matrix or data frame of exogenous
-#'   variables (regressors).
+#' @param link A string specifying the link function for the mean.
+#' @param ar A numeric vector of autoregressive (AR) lags. Defaults to
+#'   \code{integer(0)}, which omits the AR component entirely.
+#' @param ma A numeric vector of moving average (MA) lags. Defaults to
+#'   \code{integer(0)}, which omits the MA component entirely.
+#' @param xreg An optional numeric matrix or data frame of exogenous variables.
 #'
 #' @importFrom stats lm.fit fitted residuals var
 #'
 #' @return
 #' A named numeric vector containing the initial values for the model
-#' parameters (`alpha`, `varphi`, `theta`, `phi`, `beta`), ready to be
-#' used by an optimization routine. Returns `NULL` if the model
-#' specification is not recognized.
+#' parameters (`alpha`, `varphi`, `theta`, `beta`, `phi`), ready to be
+#' used by an optimization routine.
 #'
 #' @export
-start_values <- function(y, link,
-                         ar = NA, ma = NA, X = NA) {
-  # from:
-  #       Beta Regression for Modelling Rates and Proportions
-  #       Silvia Ferrari & Francisco Cribari-Neto
-  #       p. 805
+start_values <- function(y, link, ar = integer(0), ma = integer(0), xreg = NA) {
   
   # Link functions
-  # ----------------------------------------------------------------------- #
+  # ------------------------------------------------------------------------- #
   link_structure <- make_link_structure(link)
   linkfun <- link_structure$linkfun
   linkinv <- link_structure$linkinv
   mu.eta  <- link_structure$mu.eta
   
-  ynew <- linkfun(y)
+  y_transformed <- linkfun(y)
   n_obs <- length(y)
   
-  # Determine model components presence
-  has_ar <- !is.null(ar) && !any(is.na(ar)) && length(ar) > 0
-  has_ma <- !is.null(ma) && !any(is.na(ma)) && length(ma) > 0
-  has_X <- !is.null(X) && !all(is.na(X)) &&
-    (is.matrix(X) || is.data.frame(X))
+  # Resolve lag vectors to integer(0) if absent
+  ar_lags <- if (length(ar) > 0) ar else integer(0)
+  ma_lags <- if (length(ma) > 0) ma else integer(0)
   
-  # Use consistent naming convention
-  ar_lags <- if (has_ar) ar else integer(0)
-  ma_lags <- if (has_ma) ma else integer(0)
+  # Named flags for readability throughout the function
+  has_ar   <- length(ar_lags) > 0
+  has_ma   <- length(ma_lags) > 0
+  has_xreg <- !is.null(xreg) && !all(is.na(xreg))
   
-  ar_order <- ifelse(has_ar, max(ar_lags, 0L), 0L)
-  ma_order <- ifelse(has_ma, max(ma_lags, 0L), 0L)
+  ar_order <- if (has_ar) max(ar_lags, 0L) else 0L
+  ma_order <- if (has_ma) max(ma_lags, 0L) else 0L
   
   n_ar_params <- length(ar_lags)
   n_ma_params <- length(ma_lags)
   
   max_lag <- max(ar_order, ma_order)
   
-  if (has_X) {
-    X <- as.matrix(X) # Ensure X is a matrix if it's used
+  if (has_xreg) {
+    xreg <- as.matrix(xreg)
   }
   
   names_varphi <- if (has_ar) paste0("varphi", ar_lags) else character(0)
-  names_theta <- if (has_ma) paste0("theta", ma_lags) else character(0)
-  names_beta <- if (has_X) colnames(X) else character(0)
+  names_theta  <- if (has_ma) paste0("theta", ma_lags) else character(0)
+  names_beta   <- if (has_xreg) colnames(xreg) else character(0)
   
-  n_eff <- n_obs - max_lag # Effective number of observations
+  n_eff <- n_obs - max_lag
   
-  # ========================================================================= #
-  # BARMA initial values (has_ar, has_ma, !has_X)
-  # ========================================================================= #
-  if (has_ar && has_ma && !has_X) {
-    
+  # ======================================================================== #
+  # Initialize empty containers (Single Point of Truth prep)
+  # ======================================================================== #
+  alpha_start  <- numeric(0)
+  varphi_start <- numeric(0)
+  theta_start  <- numeric(0)
+  beta_start   <- numeric(0)
+  phi_start    <- numeric(0)
+  
+  # ======================================================================== #
+  # 1. BARMA initial values (has_ar, has_ma, !has_xreg)
+  # ======================================================================== #
+  if (has_ar && has_ma && !has_xreg) {
     P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
-    for (i in 1:n_eff) P[i, ] <- ynew[i + max_lag - ar_lags]
-    
+    for (i in 1:n_eff) {
+      P[i, ] <- y_transformed[i + max_lag - ar_lags]
+    }
     x_inter <- matrix(1, nrow = n_eff, ncol = 1)
-    x_start <- cbind(x_inter, P)
-    y_start <- ynew[(max_lag + 1):n_obs]
     
-    fit_start  <- lm.fit(x = x_start, y = y_start)
-    mqo <- fit_start$coef
-    
-    alpha_start <- mqo[1]
-    varphi_start <- mqo[2:(n_ar_params + 1)] 
-    
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_eff,
-      linkinv = linkinv,
-      mu.eta = mu.eta
+    fit_start <- lm.fit(
+      x = cbind(x_inter, P),
+      y = y_transformed[(max_lag + 1):n_obs]
     )
-    
-    theta_start <- rep(0, n_ma_params)
-    
-    start_value <- c(alpha_start, varphi_start, theta_start, phi_start)
-    names(start_value) <- c("alpha", names_varphi, names_theta, "phi")
-    
-    return(start_value)
-  }
-  
-  # ============================================================================
-  # BAR initial values (has_ar, !has_ma, !has_X)
-  # ============================================================================
-  if (has_ar && !has_ma && !has_X) {
-    
-    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
-    for (i in 1:n_eff) P[i, ] <- ynew[i + max_lag - ar_lags]
-    
-    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
-    x_start <- cbind(x_inter, P)
-    y_start <- ynew[(max_lag + 1):n_obs]
-    
-    fit_start  <- lm.fit(x = x_start, y = y_start)
     mqo <- fit_start$coef
     
-    alpha_start <- mqo[1]
+    alpha_start  <- mqo[1]
     varphi_start <- mqo[2:(n_ar_params + 1)]
+    theta_start  <- rep(0, n_ma_params)
+    phi_start    <- .get_phi_start(fit_start, n_eff, linkinv, mu.eta)
     
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_eff,
-      linkinv = linkinv,
-      mu.eta = mu.eta
-    )
-    
-    start_value <- c(alpha_start, varphi_start, phi_start)
-    names(start_value) <- c("alpha", names_varphi, "phi")
-    
-    return(start_value)
   }
   
-  # ============================================================================
-  # BMA initial values (!has_ar, has_ma, !has_X)
-  # ============================================================================
-  if (!has_ar && has_ma && !has_X) {
+  # ======================================================================== #
+  # 2. BAR initial values (has_ar, !has_ma, !has_xreg)
+  # ======================================================================== #
+  if (has_ar && !has_ma && !has_xreg) {
+    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
+    for (i in 1:n_eff) {
+      P[i, ] <- y_transformed[i + max_lag - ar_lags]
+    }
+    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
     
+    fit_start <- lm.fit(
+      x = cbind(x_inter, P),
+      y = y_transformed[(max_lag + 1):n_obs]
+    )
+    mqo <- fit_start$coef
+    
+    alpha_start  <- mqo[1]
+    varphi_start <- mqo[2:(n_ar_params + 1)]
+    phi_start    <- .get_phi_start(fit_start, n_eff, linkinv, mu.eta)
+    
+  }
+  # ======================================================================== #
+  # 3. BMA initial values (!has_ar, has_ma, !has_xreg)
+  # ======================================================================== #
+  if (!has_ar && has_ma && !has_xreg) {
     mean_y <- mean(y)
-    alpha_start <- mean(ynew)
+    alpha_start <- mean(y_transformed)
     theta_start <- rep(0, n_ma_params)
+    phi_start   <- (mean_y * (1 - mean_y)) / var(y)
     
+  }
+  
+  # ======================================================================== #
+  # 4. BARMAX initial values (has_ar, has_ma, has_xreg)
+  # ======================================================================== #
+  if (has_ar && has_ma && has_xreg) {
+    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
+    for (i in 1:n_eff) {
+      P[i, ] <- y_transformed[i + max_lag - ar_lags]
+    }
+    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
+    x_reg_mat <- xreg[(max_lag + 1):n_obs, , drop = FALSE]
+    
+    fit_start <- lm.fit(
+      x = cbind(x_inter, P, x_reg_mat),
+      y = y_transformed[(max_lag + 1):n_obs]
+    )
+    mqo <- fit_start$coef
+    
+    alpha_start  <- mqo[1]
+    varphi_start <- mqo[2:(n_ar_params + 1)]
+    theta_start  <- rep(0, n_ma_params)
+    beta_start   <- mqo[(n_ar_params + 2):length(mqo)]
+    phi_start    <- .get_phi_start(fit_start, n_eff, linkinv, mu.eta)
+    
+  }
+  
+  # ======================================================================== #
+  # 5. BARX initial values (has_ar, !has_ma, has_xreg)
+  # ======================================================================== #
+  if (has_ar && !has_ma && has_xreg) {
+    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
+    for (i in 1:n_eff) {
+      P[i, ] <- y_transformed[i + max_lag - ar_lags]
+    }
+    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
+    x_reg_mat <- xreg[(max_lag + 1):n_obs, , drop = FALSE]
+    
+    fit_start <- lm.fit(
+      x = cbind(x_inter, P, x_reg_mat),
+      y = y_transformed[(max_lag + 1):n_obs]
+    )
+    mqo <- fit_start$coef
+    
+    alpha_start  <- mqo[1]
+    varphi_start <- mqo[2:(n_ar_params + 1)]
+    beta_start   <- mqo[(n_ar_params + 2):length(mqo)]
+    phi_start    <- .get_phi_start(fit_start, n_eff, linkinv, mu.eta)
+    
+  }
+  
+  # ======================================================================== #
+  # 6. BMAX initial values (!has_ar, has_ma, has_xreg)
+  # ======================================================================== #
+  if (!has_ar && has_ma && has_xreg) {
+    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
+    x_reg_mat <- xreg[(max_lag + 1):n_obs, , drop = FALSE]
+    
+    fit_start <- lm.fit(
+      x = cbind(x_inter, x_reg_mat),
+      y = y_transformed[(max_lag + 1):n_obs]
+    )
+    mqo <- fit_start$coef
+    
+    alpha_start <- mqo[1]
+    theta_start <- rep(0, n_ma_params)
+    beta_start  <- mqo[2:length(mqo)]
+    phi_start   <- .get_phi_start(fit_start, n_eff, linkinv, mu.eta)
+    
+  }
+  
+  # ======================================================================== #
+  # 7. Beta Regression (!has_ar, !has_ma, has_xreg)
+  # ======================================================================== #
+  if (!has_ar && !has_ma && has_xreg) {
+    x_inter <- matrix(1, nrow = n_obs, ncol = 1)
+    
+    fit_start <- lm.fit(
+      x = cbind(x_inter, xreg),
+      y = y_transformed
+    )
+    mqo <- fit_start$coef
+    
+    alpha_start <- mqo[1]
+    beta_start  <- mqo[2:length(mqo)]
+    phi_start   <- .get_phi_start(fit_start, n_obs, linkinv, mu.eta)
+    
+  }
+  
+  # ======================================================================== #
+  # 8. Intercept-only Model (!has_ar, !has_ma, !has_xreg)
+  # ======================================================================== #
+  if (!has_ar && !has_ma && !has_xreg) {
+    mean_y <- mean(y)
+    alpha_start <- mean(y_transformed)
     phi_start <- (mean_y * (1 - mean_y)) / var(y)
     
-    start_value <- c(alpha_start, theta_start, phi_start)
-    names(start_value) <- c("alpha", names_theta, "phi")
-    
-    return(start_value)
   }
   
-  # ========================================================================= #
-  # BARMAX initial values (has_ar, has_ma, has_X)
-  # ========================================================================= #
-  if (has_ar && has_ma && has_X) {
-    
-    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
-    for (i in 1:n_eff) P[i, ] <- ynew[i + max_lag - ar_lags]
-    
-    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
-    x_reg <- X[(max_lag + 1):n_obs, , drop = FALSE]
-    x_start <- cbind(x_inter, P, x_reg)
-    y_start <- ynew[(max_lag + 1):n_obs]
-    
-    fit_start <- lm.fit(x = x_start, y = y_start)
-    mqo <- c(fit_start$coef) 
-    
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_eff,
-      linkinv = linkinv,
-      mu.eta = mu.eta
-    )
-    
-    alpha_start <- mqo[1]
-    varphi_start <- mqo[2:(n_ar_params + 1)]
-    theta_start <- rep(0, n_ma_params)
-    beta_start <- mqo[(n_ar_params + 2):length(mqo)]
-    
-    start_value <-
-      c(alpha_start, varphi_start, theta_start, phi_start, beta_start)
-    
-    names(start_value) <-
-      c("alpha", names_varphi, names_theta, "phi", names_beta)
-    
-    return(start_value)
-  }
+  # ======================================================================== #
+  # FINAL ASSEMBLY
+  # ======================================================================== #
+  start_value <- c(
+    alpha_start,
+    varphi_start,
+    theta_start,
+    beta_start,
+    phi_start
+  )
   
-  # ========================================================================= #
-  # BARX initial values (has_ar, !has_ma, has_X)
-  # ========================================================================= #
-  if (has_ar && !has_ma && has_X) {
-    
-    P <- matrix(NA, nrow = n_eff, ncol = n_ar_params)
-    for (i in 1:n_eff) P[i, ] <- ynew[i + max_lag - ar_lags]
-    
-    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
-    x_reg <- X[(max_lag + 1):n_obs, , drop = FALSE]
-    x_start <- cbind(x_inter, P, x_reg)
-    y_start <- ynew[(max_lag + 1):n_obs]
-    
-    fit_start <- lm.fit(x = x_start, y = y_start)
-    mqo <- c(fit_start$coef) 
-    
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_eff,
-      linkinv = linkinv,
-      mu.eta = mu.eta
-    )
-    
-    alpha_start <- mqo[1]
-    varphi_start <- mqo[2:(n_ar_params + 1)]
-    beta_start <- mqo[(n_ar_params + 2):length(mqo)]
-    
-    start_value <- c(alpha_start, varphi_start, phi_start, beta_start)
-    names(start_value) <- c("alpha", names_varphi, "phi", names_beta)
-    
-    return(start_value)
-  }
+  names(start_value) <- c(
+    "alpha",
+    if (length(varphi_start) > 0) names_varphi else character(0),
+    if (length(theta_start) > 0)  names_theta  else character(0),
+    if (length(beta_start) > 0)   names_beta   else character(0),
+    "phi"
+  )
   
-  # ========================================================================= #
-  # BMAX initial values (!has_ar, has_ma, has_X)
-  # ========================================================================= #
-  if (!has_ar && has_ma && has_X) {
-    
-    x_inter <- matrix(1, nrow = n_eff, ncol = 1)
-    x_reg <- X[(max_lag + 1):n_obs, , drop = FALSE]
-    x_start <- cbind(x_inter, x_reg)
-    y_start <- ynew[(max_lag + 1):n_obs]
-    
-    fit_start <- lm.fit(x = x_start, y = y_start)
-    mqo <- fit_start$coef
-    
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_eff,
-      linkinv = linkinv,
-      mu.eta = mu.eta
-    )
-    
-    alpha_start <- mqo[1]
-    theta_start <- rep(0, n_ma_params)
-    beta_start <- mqo[2:length(mqo)]
-    
-    start_value <- c(alpha_start, theta_start, phi_start, beta_start)
-    names(start_value) <- c("alpha", names_theta, "phi", names_beta)
-    
-    return(start_value)
-  }
-  
-  # ========================================================================= #
-  # Beta Regression (!has_ar, !has_ma, has_X)
-  # ========================================================================= #
-  if (!has_ar && !has_ma && has_X) {
-    
-    x_inter <- matrix(1, nrow = n_obs, ncol = 1) # max_lag is 0
-    x_start <- cbind(x_inter, X)
-    y_start <- ynew 
-    
-    fit_start <- lm.fit(x = x_start, y = y_start)
-    mqo <- fit_start$coef
-    
-    phi_start <- ._get_phi_start(
-      fit = fit_start,
-      n_eff = n_obs,
-      linkinv = linkinv,
-      mu.eta = mu.eta
-    )
-    
-    alpha_start <- mqo[1]
-    beta_start <- mqo[2:length(mqo)]
-    
-    start_value <- c(alpha_start, phi_start, beta_start)
-    names(start_value) <- c("alpha", "phi", names_beta)
-    
-    return(start_value)
-  }
-  
-  # ========================================================================= #
-  # Intercept-only Model (!has_ar, !has_ma, !has_X)
-  # ========================================================================= #
-  if (!has_ar && !has_ma && !has_X) {
-    
-    mean_y <- mean(y)
-    alpha_start <- mean(ynew)
-    phi_start <- (mean_y * (1 - mean_y)) / var(y) 
-    
-    start_value <- c(alpha_start, phi_start)
-    names(start_value) <- c("alpha", "phi")
-    
-    return(start_value)
-  }
-  
-  warning("No matching model configuration found for initial values.")
-  return(NULL)
+  return(start_value)
 }
 
 #' Internal Helper to Calculate Initial Phi
 #'
 #' @description
 #' Calculates the initial value for the precision parameter phi based on the
-#' residuals of an initial 'lm.fit' object, following Ferrari & 
-#' Cribari-Neto (2004).
-#'
-#' This helper uses the *exact* mathematical logic from the original
-#' 'start_values.R' file to ensure identical numerical output.
+#' residuals of an initial 'lm.fit' object. The formula is adapted and
+#' empirically improved from Ferrari & Cribari-Neto (2004) — specifically,
+#' the "-1" term in the original precision estimator is omitted, as Monte
+#' Carlo simulations showed better optimization performance without it.
 #'
 #' @param fit An 'lm.fit' object.
 #' @param n_eff The effective number of observations used in the fit.
@@ -351,7 +271,7 @@ start_values <- function(y, link,
 #'
 #' @return A single numeric value for phi_start.
 #' @keywords internal
-._get_phi_start <- function(fit, n_eff, linkinv, mu.eta) {
+.get_phi_start <- function(fit, n_eff, linkinv, mu.eta) {
   
   mqo <- fit$coef
   k <- length(mqo)
@@ -359,7 +279,6 @@ start_values <- function(y, link,
   
   y_hat_fit_start <- fitted(fit)
   mean_fit_start <- linkinv(y_hat_fit_start)
-  
   
   linkfun_deriv_aux <- mu.eta(eta = y_hat_fit_start)
   linkfun_deriv <- 1 / linkfun_deriv_aux
@@ -370,11 +289,6 @@ start_values <- function(y, link,
   sigma2 <- sum(er^2) / ((n1 - k) * linkfun_deriv^2)
   phi_start_aux <- sum(mean_fit_start * (1 - mean_fit_start) / sigma2)
   
-  # NOTE: The formula in Ferrari & Cribari-Neto (2004) implies a 
-  # slightly different estimator (`phi_start_aux - 1` / n1).
-  # However, extensive simulation studies showed that omitting the
-  # '-1' yields better initial values with lower bias and RMSE
-  # for the final parameter estimates.
   phi_start <- phi_start_aux / n1
   # ---
   

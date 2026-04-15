@@ -27,8 +27,8 @@
 #' **Model Types** (specified via `ar` and `ma` arguments):
 #' \itemize{
 #'   \item **BARMA(p,q):** Both `ar` and `ma` are specified.
-#'   \item **BAR(p):** Only `ar` is specified; set `ma = NA`.
-#'   \item **BMA(q):** Only `ma` is specified; set `ar = NA`.
+#'   \item **BAR(p):** Only `ar` is specified; omit `ma` or pass `integer(0)`.
+#'   \item **BMA(q):** Only `ma` is specified; omit `ar` or pass `integer(0)`.
 #' }
 #'
 #' **External Regressors**: Covariates can be included via `xreg`. The model
@@ -40,8 +40,9 @@
 #' are obtained from the `start_values()` function.
 #'
 #' **Implementation Notes**: 
-#' - The conditional log-likelihood is computed, conditioning on the first
-#'   \eqn{m = \max(p,q)} observations (burn-in period).
+#' - The conditional log-likelihood is computed by conditioning on the first
+#'   \eqn{m = \max(p,q)} observations, which are required to initialize the
+#'   recursive structure of the model.
 #' - The 2017 Erratum corrections are implemented for correct handling of
 #'   moving average components in the score vector and Fisher Information Matrix.
 #' - All computations are vectorized where possible for efficiency.
@@ -73,13 +74,15 @@
 #'
 #' @param ar
 #' A numeric vector specifying autoregressive (AR) lags
-#' (e.g., `c(1, 2)` for AR(2)). Set to `NA` for models without AR component.
-#' Default is `NA`.
+#' (e.g., `c(1, 2)` for AR(2)). Defaults to `integer(0)`, which omits the
+#' AR component entirely. Absence should be expressed by omitting this
+#' argument or passing `integer(0)`.
 #'
 #' @param ma
 #' A numeric vector specifying moving average (MA) lags
-#' (e.g., `1` for MA(1)). Set to `NA` for models without MA component.
-#' Default is `NA`.
+#' (e.g., `1` for MA(1)). Defaults to `integer(0)`, which omits the
+#' MA component entirely. Absence should be expressed by omitting this
+#' argument or passing `integer(0)`.
 #'
 #' @param link
 #' The link function connecting the mean \eqn{\mu_t} to the linear predictor
@@ -105,7 +108,7 @@
 #' \item{model}{A summary table with coefficients, standard errors, z-statistics,
 #'   and p-values for hypothesis tests \eqn{H_0: \theta_i = 0}.}
 #' \item{fitted}{Fitted conditional mean values as a `ts` object
-#'   (NA-padded for burn-in period).}
+#'   (NA-padded for the first \eqn{m = \max(p,q)} observations).}
 #' \item{muhat}{Alias for `fitted` (fitted mean values).}
 #' \item{etahat}{Estimated linear predictor values (full vector, NA-padded).}
 #' \item{errorhat}{Estimated errors on predictor scale (full vector, 0-padded).}
@@ -125,54 +128,63 @@
 #'
 #' @examples
 #' \donttest{
-#'   # Example 1: Fit a BAR(1) model
+#'   # Example 1: Fit a BAR(1) model (no MA component)
 #'   set.seed(2025)
-#'   y_sim_bar <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_bar1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     phi = 25.0,
-#'     link = "logit",
-#'     freq = 12
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
 #'   )
 #'
-#'   # Fit the model
-#'   fit_bar <- barma(y_sim_bar, ar = 1, link = "logit")
+#'   fit_bar1 <- barma(y_sim_bar1, ar = 1, link = "logit")
+#'   summary(fit_bar1)
+#'   coef(fit_bar1)
 #'
-#'   # View results
-#'   summary(fit_bar)
-#'   coef(fit_bar)
-#'
-#'   # Example 2: Fit a BARMA(1,1) model
+#'   # Example 2: Fit a BARMA(1, 1) model
 #'   set.seed(2025)
-#'   y_sim_barma <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_barma11 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = 0.3,
-#'     phi = 25.0,
+#'     theta  = 0.3,
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
+#'   )
+#'
+#'   fit_barma11 <- barma(y_sim_barma11, ar = 1, ma = 1, link = "logit")
+#'   summary(fit_barma11)
+#'
+#'   # Example 3: Fit a BMA(1) model (no AR component)
+#'   set.seed(2025)
+#'   y_sim_bma1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
+#'     theta  = 0.3,
+#'     phi    = 20.0,
+#'     link   = "logit",
+#'     freq   = 12
+#'   )
+#'
+#'   fit_bma1 <- barma(y_sim_bma1, ma = 1, link = "logit")
+#'   summary(fit_bma1)
+#'
+#'   # Example 4: BARMA(1, 1) model with harmonic seasonal regressors
+#'   hs <- sin(2 * pi * seq_along(y_sim_barma11) / 12)
+#'   hc <- cos(2 * pi * seq_along(y_sim_barma11) / 12)
+#'   X  <- cbind(hs = hs, hc = hc)
+#'
+#'   fit_barma11_xreg <- barma(
+#'     y_sim_barma11,
+#'     ar   = 1,
+#'     ma   = 1,
 #'     link = "logit",
-#'     freq = 12
+#'     xreg = X
 #'   )
-#'
-#'   # Fit ARMA structure
-#'   fit_barma <- barma(y_sim_barma, ar = 1, ma = 1, link = "logit")
-#'   summary(fit_barma)
-#'
-#'   # Example 3: BARMA(1,1) model with harmonic seasonal regressors
-#'   hs <- sin(2 * pi * seq_along(y_sim_barma) / 12)
-#'   hc <- cos(2 * pi * seq_along(y_sim_barma) / 12)
-#'
-#'   # Create regressor matrix
-#'   X <- cbind(hs = hs,
-#'              hc = hc)
-#'
-#'   fit_barma_xreg <- barma(
-#'     y_sim_barma,
-#'     ar = 1, ma = 1,
-#'     link = "logit", xreg = X
-#'   )
-#'   summary(fit_barma_xreg)
+#'   summary(fit_barma11_xreg)
 #' }
 #'
 #' @importFrom stats is.ts optim dbeta frequency pnorm start ts
@@ -180,8 +192,8 @@
 #' @export
 barma <- function(
     y,
-    ar = NA,
-    ma = NA,
+    ar = integer(0),
+    ma = integer(0),
     link = "logit",
     xreg = NULL
 ) {
@@ -228,19 +240,37 @@ barma <- function(
   # 2. DETERMINE MODEL STRUCTURE
   # --------------------------------------------------------------------------
   
-  # Check for presence of AR and MA components
-  has_ar <- !is.null(ar) && !any(is.na(ar)) && length(ar) > 0
-  has_ma <- !is.null(ma) && !any(is.na(ma)) && length(ma) > 0
-  has_xreg <- !is.null(xreg)
+  # Backward compatibility: in v1.0.1, absence was expressed as ar = NA or
+  # ma = NA. Convert silently to integer(0) and warn the user.
+  if (length(ar) == 1 && is.na(ar)) {
+    warning(
+      "Passing 'ar = NA' is deprecated. ",
+      "Use 'ar = integer(0)' or omit the argument to indicate no AR component."
+    )
+    ar <- integer(0)
+  }
+  if (length(ma) == 1 && is.na(ma)) {
+    warning(
+      "Passing 'ma = NA' is deprecated. ",
+      "Use 'ma = integer(0)' or omit the argument to indicate no MA component."
+    )
+    ma <- integer(0)
+  }
   
-  # Use integer(0) for empty lags, as expected by helper functions
-  ar_lags <- if (has_ar) ar else integer(0)
-  ma_lags <- if (has_ma) ma else integer(0)
+  # Resolve lag vectors to integer(0) if absent.
+  ar_lags <- if (length(ar) > 0) ar else integer(0)
+  ma_lags <- if (length(ma) > 0) ma else integer(0)
+  
+  has_xreg <- !is.null(xreg)
   
   n_ar_params <- length(ar_lags)
   n_ma_params <- length(ma_lags)
   
-  # --- Setup and Validate Regressors ---
+  # Named flags for readability throughout the function
+  has_ar <- n_ar_params > 0
+  has_ma <- n_ma_params > 0
+  
+  # Setup and Validate Regressors
   if (has_xreg) {
     if (!is.matrix(xreg)) {
       xreg <- as.matrix(xreg)
@@ -269,13 +299,13 @@ barma <- function(
   
   # Create parameter names for output
   names_varphi <- if (has_ar) paste0("varphi", ar_lags) else character(0)
-  names_theta  <- if (has_ma) paste0("theta", ma_lags) else character(0)
+  names_theta  <- if (has_ma) paste0("theta",  ma_lags) else character(0)
   
   # --------------------------------------------------------------------------
   # 3. SETUP TIME SERIES PROPERTIES
   # --------------------------------------------------------------------------
   
-  # Determine maximum lag for burn-in period
+  # Determine maximum lag required to initialize the recursive structure
   ar_order <- if (has_ar) max(ar_lags) else 0L
   ma_order <- if (has_ma) max(ma_lags) else 0L
   max_lag  <- max(ar_order, ma_order)
@@ -301,7 +331,7 @@ barma <- function(
   linkinv <- link_structure$linkinv
   
   # Transform response variable to predictor scale
-  ynew <- linkfun(y)
+  y_transformed <- linkfun(y)
   
   # --------------------------------------------------------------------------
   # 5. SETUP PARAMETER INDICES (FOR OPTIMIZATION)
@@ -311,8 +341,8 @@ barma <- function(
   # 1. alpha (intercept)
   # 2. AR parameters (if present)
   # 3. MA parameters (if present)
-  # 4. phi (precision parameter)
-  # 5. beta (regression coefficients, if present)
+  # 4. beta (regression coefficients, if present)
+  # 5. phi (precision parameter)
   
   idx_alpha <- 1
   
@@ -332,10 +362,6 @@ barma <- function(
   
   if (has_ma) last_idx <- max(idx_theta)
   
-  # Precision parameter (always present)
-  idx_phi <- last_idx + 1
-  last_idx <- idx_phi
-  
   # Regression coefficients (if present)
   idx_beta <- if (has_xreg) {
     (last_idx + 1):(last_idx + n_beta_params)
@@ -344,6 +370,10 @@ barma <- function(
   }
   
   if (has_xreg) last_idx <- max(idx_beta)
+  
+  # Precision parameter (always last)
+  idx_phi <- last_idx + 1
+  last_idx <- idx_phi
   
   n_params <- last_idx
   
@@ -357,7 +387,7 @@ barma <- function(
     link = link,
     ar = ar_lags,
     ma = ma_lags,
-    X = xreg
+    xreg = xreg
   )
   
   if (is.null(init_pars) || length(init_pars) != n_params) {
@@ -436,7 +466,7 @@ barma <- function(
   z$beta   <- if (has_xreg) coef_raw[idx_beta] else numeric(0)
   
   # Create named coefficient vector for user output
-  # Order: Alpha, AR, MA, Beta, Phi
+  # Order: alpha, AR, MA, beta, phi
   coef_final <- c(z$alpha, z$varphi, z$theta, z$beta, z$phi)
   coef_names <- c("alpha", names_varphi, names_theta, beta_names, "phi")
   names(coef_final) <- coef_names

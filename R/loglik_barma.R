@@ -40,24 +40,28 @@
 #'
 #' @param ar
 #' A numeric vector specifying the autoregressive (AR) lags
-#' (e.g., \code{c(1, 2)}). Can be \code{NA} or \code{NULL} if no AR component.
+#' (e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+#' AR component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
 #'
 #' @param ma
 #' A numeric vector specifying the moving average (MA) lags
-#' (e.g., \code{1}). Can be \code{NA} or \code{NULL} if no MA component.
+#' (e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+#' MA component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
 #'
 #' @param alpha
 #' The intercept term (numeric scalar).
 #'
 #' @param varphi
 #' A numeric vector of autoregressive (AR) parameters.
-#' Use \code{numeric(0)} or empty vector if no AR component.
-#' Length must match \code{ar} specification.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
 #'
 #' @param theta
 #' A numeric vector of moving average (MA) parameters.
-#' Use \code{numeric(0)} or empty vector if no MA component.
-#' Length must match \code{ma} specification.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
 #'
 #' @param phi
 #' The precision parameter of the BARMA model (must be positive and finite).
@@ -101,58 +105,77 @@
 #'
 #' @examples
 #' \donttest{
-#'   # Example 1: Log-likelihood for a BAR(1) model
+#'   # Example 1: Log-likelihood for a BAR(1) model (no MA component)
 #'   set.seed(2025)
-#'   y_sim_bar <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_bar1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     phi = 25.0,
-#'     link = "logit",
-#'     freq = 12
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
 #'   )
 #'
 #'   loglik_barma(
-#'     y = y_sim_bar,
-#'     ar = 1,
-#'     ma = NA,
-#'     alpha = 0.0,
+#'     y      = y_sim_bar1,
+#'     ar     = 1,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = numeric(0),
-#'     phi = 25.0,
-#'     link = "logit"
+#'     theta  = numeric(0),
+#'     phi    = 25.0,
+#'     link   = "logit"
 #'   )
 #'
-#'   # Example 2: Log-likelihood for a BARMA(1,1) model
+#'   # Example 2: Log-likelihood for a BARMA(1, 1) model
 #'   set.seed(2025)
-#'   y_sim_barma <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_barma11 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = 0.3,
-#'     phi = 25.0,
-#'     link = "logit",
-#'     freq = 12
+#'     theta  = 0.3,
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
 #'   )
 #'
 #'   loglik_barma(
-#'     y = y_sim_barma,
-#'     ar = 1,
-#'     ma = 1,
-#'     alpha = 0.0,
+#'     y      = y_sim_barma11,
+#'     ar     = 1,
+#'     ma     = 1,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = 0.3,
-#'     phi = 25.0,
-#'     link = "logit"
+#'     theta  = 0.3,
+#'     phi    = 25.0,
+#'     link   = "logit"
 #'   )
 #'
+#'   # Example 3: Log-likelihood for a BMA(1) model (no AR component)
+#'   set.seed(2025)
+#'   y_sim_bma1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
+#'     theta  = 0.3,
+#'     phi    = 20.0,
+#'     link   = "logit",
+#'     freq   = 12
+#'   )
+#'
+#'   loglik_barma(
+#'     y      = y_sim_bma1,
+#'     ma     = 1,
+#'     alpha  = 0.0,
+#'     varphi = numeric(0),
+#'     theta  = 0.3,
+#'     phi    = 20.0,
+#'     link   = "logit"
+#'   )
 #' }
 #'
 #' @export
 loglik_barma <- function(
     y,
-    ar,
-    ma,
+    ar   = integer(0),
+    ma   = integer(0),
     alpha,
     varphi,
     theta,
@@ -195,34 +218,31 @@ loglik_barma <- function(
   # 2. DETERMINE MODEL STRUCTURE 
   # --------------------------------------------------------------------------
   
-  # Check for presence of AR, MA, and external regressors
-  has_ar <- !is.null(ar) && !any(is.na(ar)) && length(ar) > 0
-  has_ma <- !is.null(ma) && !any(is.na(ma)) && length(ma) > 0
-  has_xreg <- !is.null(xreg)
+  # Resolve lag vectors to integer(0) if absent.
+  ar_lags <- if (length(ar) > 0) ar else integer(0)
+  ma_lags <- if (length(ma) > 0) ma else integer(0)
   
-  # Handle empty lag cases
-  ar_lags <- if (has_ar) ar else integer(0)
-  ma_lags <- if (has_ma) ma else integer(0)
+  # Force varphi / theta to numeric(0) when the corresponding component
+  # is absent, so that drop(crossprod(numeric(0), numeric(0))) == 0.
+  varphi <- if (length(ar_lags) > 0) varphi else numeric(0)
+  theta  <- if (length(ma_lags) > 0) theta  else numeric(0)
   
-  n_ar_params <- length(varphi)
-  n_ma_params <- length(theta)
-  
-  # Validate parameter-lag consistency ---
-  if (has_ar && n_ar_params != length(ar_lags)) {
+  # Validate parameter-lag consistency
+  if (length(varphi) != length(ar_lags)) {
     stop(
-      "Length of 'varphi' (", n_ar_params, ") ",
+      "Length of 'varphi' (", length(varphi), ") ",
       "must match length of 'ar' (", length(ar_lags), ")."
     )
   }
-  if (has_ma && n_ma_params != length(ma_lags)) {
+  if (length(theta) != length(ma_lags)) {
     stop(
-      "Length of 'theta' (", n_ma_params, ") ",
+      "Length of 'theta' (", length(theta), ") ",
       "must match length of 'ma' (", length(ma_lags), ")."
     )
   }
   
-  # Setup Regressors ---
-  if (has_xreg) {
+  # Setup Regressors
+  if (!is.null(xreg)) {
     if (!is.matrix(xreg)) xreg <- as.matrix(xreg)
     
     if (is.null(beta)) {
@@ -267,8 +287,8 @@ loglik_barma <- function(
   y_transformed <- linkfun(y)
   
   # Determine maximum lag for burn-in period
-  ar_order <- if (has_ar) max(ar_lags) else 0
-  ma_order <- if (has_ma) max(ma_lags) else 0
+  ar_order <- if (length(ar_lags) > 0) max(ar_lags) else 0
+  ma_order <- if (length(ma_lags) > 0) max(ma_lags) else 0
   max_lag  <- max(ar_order, ma_order)
   n_obs <- length(y)
   
@@ -290,30 +310,12 @@ loglik_barma <- function(
   error <- rep(0, n_obs)
   eta   <- rep(NA_real_, n_obs)
   
-  # Recursively compute predictor and errors
+  # Recursively compute predictor and errors.
   for (t in (max_lag + 1):n_obs) {
+    eta[t] <- alpha + xb[t] +
+      drop(crossprod(varphi, y_transformed[t - ar_lags] - xb[t - ar_lags])) +
+      drop(crossprod(theta,  error[t - ma_lags]))
     
-    # Part A: Base Linear Predictor ---
-    # Initialize with intercept and regressor contribution
-    eta[t] <- alpha + xb[t]
-    
-    # Part B: Autoregressive Component ---
-    # AR(p) term: acts on lagged transformed response, adjusted for regression
-    if (has_ar) {
-      # Extract lagged transformed response, adjusted for regression effect
-      prev_terms <- y_transformed[t - ar_lags] - xb[t - ar_lags]
-      # Add AR contribution: sum(varphi_i * (y_{t-i} - X_{t-i}*beta))
-      eta[t] <- eta[t] + drop(crossprod(varphi, prev_terms))
-    }
-    
-    # Part C: Moving Average Component ---
-    # MA(q) term: acts on lagged prediction errors
-    if (has_ma) {
-      eta[t] <- eta[t] + drop(crossprod(theta, error[t - ma_lags]))
-    }
-    
-    # Part D: Compute Prediction Error ---
-    # Error is deviation of transformed response from predictor
     error[t] <- y_transformed[t] - eta[t]
   }
   

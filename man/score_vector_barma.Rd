@@ -6,8 +6,8 @@
 \usage{
 score_vector_barma(
   y,
-  ar,
-  ma,
+  ar = integer(0),
+  ma = integer(0),
   alpha,
   varphi,
   theta,
@@ -21,18 +21,24 @@ score_vector_barma(
 \item{y}{A time series object (\code{ts}) with values strictly in (0, 1).}
 
 \item{ar}{A numeric vector specifying the autoregressive (AR) lags.
-Use \code{NA} or \code{NULL} if no AR component.}
+Defaults to \code{integer(0)}, which omits the AR component entirely.
+Absence should be expressed by omitting this argument or passing
+\code{integer(0)}.}
 
 \item{ma}{A numeric vector specifying the moving average (MA) lags.
-Use \code{NA} or \code{NULL} if no MA component.}
+Defaults to \code{integer(0)}, which omits the MA component entirely.
+Absence should be expressed by omitting this argument or passing
+\code{integer(0)}.}
 
 \item{alpha}{The intercept parameter.}
 
 \item{varphi}{A numeric vector of AR parameters.
-Use \code{numeric(0)} if no AR component.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{theta}{A numeric vector of MA parameters.
-Use \code{numeric(0)} if no MA component.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{phi}{The precision parameter (must be positive).}
 
@@ -48,16 +54,91 @@ corresponding to \code{xreg}.}
 \value{
 A numeric vector of the same length as the parameter vector,
   giving the partial derivatives of the log-likelihood with respect
-  to each parameter.
+  to each parameter. The order of the components is:
+  \code{(alpha, varphi, theta, beta, phi)}.
 }
 \description{
 Computes the score vector (gradient of the log-likelihood)
   for the Beta Autoregressive Moving Average (BARMA) model at a given
-  parameter vector. Used internally by \code{\link{barma}} during
-  optimization via the BFGS algorithm.
+  parameter vector. This function is designed for users who:
+\itemize{
+  \item Implement custom optimization algorithms
+  \item Verify theoretical properties
+  \item Conduct simulation studies
+  \item Debug model fitting
+  \item Integrate BARMA models into their own workflows
+}
+}
+\examples{
+\donttest{
+  # Example 1: Score vector for a BAR(1) model (no MA component)
+  set.seed(2025)
+  y_sim_bar1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    varphi = 0.6,
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  score_vector_barma(
+    y      = y_sim_bar1,
+    ar     = 1,
+    alpha  = 0.0,
+    varphi = 0.6,
+    theta  = numeric(0),
+    phi    = 25.0,
+    link   = "logit"
+  )
+
+  # Example 2: Score vector for a BARMA(1, 1) model
+  set.seed(2025)
+  y_sim_barma11 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    varphi = 0.6,
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  score_vector_barma(
+    y      = y_sim_barma11,
+    ar     = 1,
+    ma     = 1,
+    alpha  = 0.0,
+    varphi = 0.6,
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit"
+  )
+
+  # Example 3: Score vector for a BMA(1) model (no AR component)
+  set.seed(2025)
+  y_sim_bma1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  score_vector_barma(
+    y      = y_sim_bma1,
+    ma     = 1,
+    alpha  = 0.0,
+    varphi = numeric(0),
+    theta  = 0.6,
+    phi    = 25.0,
+    link   = "logit"
+  )
+}
+
 }
 \seealso{
 \code{\link{barma}}, \code{\link{loglik_barma}},
   \code{\link{fim_barma}}
 }
-\keyword{internal}

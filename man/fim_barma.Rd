@@ -5,26 +5,41 @@
 \title{Compute Fisher Information Matrix for Beta Autoregressive
 Moving Average Models}
 \usage{
-fim_barma(y, ar, ma, alpha, varphi, theta, phi, link, xreg = NULL, beta = NULL)
+fim_barma(
+  y,
+  ar = integer(0),
+  ma = integer(0),
+  alpha,
+  varphi,
+  theta,
+  phi,
+  link,
+  xreg = NULL,
+  beta = NULL
+)
 }
 \arguments{
 \item{y}{A numeric vector representing the time series data, in (0, 1).}
 
 \item{ar}{A numeric vector specifying the autoregressive (AR) lags
-(e.g., \code{c(1, 2)}). Can be \code{NA} or \code{NULL} if no AR component.}
+(e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+AR component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
 \item{ma}{A numeric vector specifying the moving average (MA) lags
-(e.g., \code{1}). Can be \code{NA} or \code{NULL} if no MA component.}
+(e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+MA component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
 \item{alpha}{The intercept term (numeric scalar).}
 
 \item{varphi}{A numeric vector of autoregressive (AR) parameters.
-Use \code{numeric(0)} or empty vector if no AR component.
-Length must match \code{ar} specification.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{theta}{A numeric vector of moving average (MA) parameters.
-Use \code{numeric(0)} or empty vector if no MA component.
-Length must match \code{ma} specification.}
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
 \item{phi}{The precision parameter of the BARMA model (must be positive and finite).
 Larger values indicate less variance for a given mean.}
@@ -45,14 +60,15 @@ A list containing:
   p is AR order, q is MA order. The matrix is symmetric and should be
   positive definite at the MLE.}
 \item{fitted_ts}{The fitted values (conditional mean) as a \code{ts} object,
-  with the same time index as the input \code{y}. Values for the
-  burn-in period (first max_lag observations) are \code{NA}.}
+  with the same time index as the input \code{y}. Values for the first
+  \eqn{m = \max(p,q)} observations are \code{NA}.}
 \item{muhat_effective}{The fitted conditional means (numeric vector)
-  excluding the burn-in period.}
+  excluding the first \eqn{m} observations.}
 \item{etahat_full}{The estimated linear predictor values (numeric vector,
-  length = length(y)), with \code{NA} for burn-in period.}
+  length = length(y)), with \code{NA} for the first \eqn{m} observations.}
 \item{errorhat_full}{The estimated errors on the predictor scale
-  (numeric vector, length = length(y)), zero-padded for burn-in period.}
+  (numeric vector, length = length(y)), zero-padded for the first
+  \eqn{m} observations.}
 }
 \description{
 Computes the observed Fisher Information Matrix (FIM) of a Beta
@@ -85,65 +101,86 @@ Erratum (Rocha & Cribari-Neto, 2017) for moving average components.
 See References section for details.
 
 **Parameter Order**: Parameters should be supplied in the order:
-alpha, varphi (AR), theta (MA), phi, beta (regressors).
+alpha, varphi (AR), theta (MA), beta (regressors), phi.
 This matches the parameter order used by \code{\link{barma}}.
 }
 \examples{
 \donttest{
-  # Example 1: Fisher Information Matrix for a BAR(1) model
+  # Example 1: Fisher Information Matrix for a BAR(1) model (no MA component)
   set.seed(2025)
-  y_sim_bar <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_bar1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    phi = 25.0,
-    link = "logit",
-    freq = 12
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
   )
 
-  result_bar <- fim_barma(
-    y = y_sim_bar,
-    ar = 1,
-    ma = NA,
-    alpha = 0.0,
+  result_bar1 <- fim_barma(
+    y      = y_sim_bar1,
+    ar     = 1,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = numeric(0),
-    phi = 25.0,
-    link = "logit"
+    theta  = numeric(0),
+    phi    = 25.0,
+    link   = "logit"
   )
 
   # Check positive definiteness
-  fim <- result_bar$fisher_info_mat
+  fim <- result_bar1$fisher_info_mat
   all(eigen(fim)$values > 0)
 
   # Standard errors from inverse of FIM
   sqrt(diag(solve(fim)))
 
-  # Example 2: Fisher Information Matrix for a BARMA(1,1) model
+  # Example 2: Fisher Information Matrix for a BARMA(1, 1) model
   set.seed(2025)
-  y_sim_barma <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_barma11 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = 0.3,
-    phi = 25.0,
-    link = "logit",
-    freq = 12
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
   )
 
-  result_barma <- fim_barma(
-    y = y_sim_barma,
-    ar = 1,
-    ma = 1,
-    alpha = 0.0,
+  result_barma11 <- fim_barma(
+    y      = y_sim_barma11,
+    ar     = 1,
+    ma     = 1,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = 0.3,
-    phi = 25.0,
-    link = "logit"
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit"
   )
 
-  # Standard errors
-  sqrt(diag(solve(result_barma$fisher_info_mat)))
+  sqrt(diag(solve(result_barma11$fisher_info_mat)))
+
+  # Example 3: Fisher Information Matrix for a BMA(1) model (no AR component)
+  set.seed(2025)
+  y_sim_bma1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  result_bma1 <- fim_barma(
+    y      = y_sim_bma1,
+    ma     = 1,
+    alpha  = 0.0,
+    varphi = numeric(0),
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit"
+  )
+
+  sqrt(diag(solve(result_bma1$fisher_info_mat)))
 }
 
 }

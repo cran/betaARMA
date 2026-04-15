@@ -4,28 +4,25 @@
 \alias{start_values}
 \title{Generate Initial Values for BARMA Model Estimation}
 \usage{
-start_values(y, link, ar = NA, ma = NA, X = NA)
+start_values(y, link, ar = integer(0), ma = integer(0), xreg = NA)
 }
 \arguments{
 \item{y}{A numeric time series with values in the open interval (0, 1).}
 
-\item{link}{A string specifying the link function for the mean, such as
-`"logit"`, `"probit"`, or `"cloglog"`.}
+\item{link}{A string specifying the link function for the mean.}
 
-\item{ar}{A numeric vector of autoregressive (AR) lags. Defaults to `NA`
-for models without an AR component.}
+\item{ar}{A numeric vector of autoregressive (AR) lags. Defaults to
+\code{integer(0)}, which omits the AR component entirely.}
 
-\item{ma}{A numeric vector of moving average (MA) lags. Defaults to `NA`
-for models without an MA component.}
+\item{ma}{A numeric vector of moving average (MA) lags. Defaults to
+\code{integer(0)}, which omits the MA component entirely.}
 
-\item{X}{An optional numeric matrix or data frame of exogenous
-variables (regressors).}
+\item{xreg}{An optional numeric matrix or data frame of exogenous variables.}
 }
 \value{
 A named numeric vector containing the initial values for the model
-parameters (`alpha`, `varphi`, `theta`, `phi`, `beta`), ready to be
-used by an optimization routine. Returns `NULL` if the model
-specification is not recognized.
+parameters (`alpha`, `varphi`, `theta`, `beta`, `phi`), ready to be
+used by an optimization routine.
 }
 \description{
 This function calculates reasonable starting values for the parameters of
@@ -38,31 +35,6 @@ The function computes initial values by fitting a linear model
 (`lm.fit`) to the link-transformed response variable `g(y)`.
 This provides a computationally cheap and stable way to initialize the
 main optimization algorithm.
-
-The specific procedure depends on the model's structure:
-\itemize{
-  \item For models with autoregressive (AR) terms, the lagged values of
-    the transformed series `g(y)` are used as predictors to estimate
-    the initial `alpha` (intercept) and `varphi` (AR) coefficients.
-  \item If exogenous variables `X` are included, they are added as
-    predictors in the linear model to obtain initial `beta` values.
-  \item Moving average (MA) coefficients (`theta`) are initialized to zero,
-    a standard practice in ARMA model estimation.
-  \item The initial value for the precision parameter `phi` is derived
-    from the variance of the residuals of the initial linear fit,
-    following the methodology from Ferrari & Cribari-Neto (2004).
-  \item For a pure BMA model (no AR or X components), a simpler method is
-    used where `alpha` is the mean of `g(y)` and `phi` is based on the
-    unconditional variance of `y`.
-}
-
-This function is called internally by the main model fitting function
-but is exported for standalone use and inspection.
-}
-\references{
-Ferrari, S. L. P., & Cribari-Neto, F. (2004). Beta regression for
-modelling rates and proportions. *Journal of Applied Statistics*,
-31(7), 799-818. <doi:10.1080/0266476042000214501>
 }
 \author{
 Original code by Fabio M. Bayer (bayer@ufsm.br).

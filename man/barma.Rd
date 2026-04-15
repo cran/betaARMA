@@ -4,19 +4,21 @@
 \alias{barma}
 \title{Fit Beta Autoregressive Moving Average (BARMA) Models via Maximum Likelihood}
 \usage{
-barma(y, ar = NA, ma = NA, link = "logit", xreg = NULL)
+barma(y, ar = integer(0), ma = integer(0), link = "logit", xreg = NULL)
 }
 \arguments{
 \item{y}{A time series object (`ts`) with values strictly in the open interval (0, 1).
 Must have at least \eqn{\max(p,q) + 1} observations.}
 
 \item{ar}{A numeric vector specifying autoregressive (AR) lags
-(e.g., `c(1, 2)` for AR(2)). Set to `NA` for models without AR component.
-Default is `NA`.}
+(e.g., `c(1, 2)` for AR(2)). Defaults to `integer(0)`, which omits the
+AR component entirely. Absence should be expressed by omitting this
+argument or passing `integer(0)`.}
 
 \item{ma}{A numeric vector specifying moving average (MA) lags
-(e.g., `1` for MA(1)). Set to `NA` for models without MA component.
-Default is `NA`.}
+(e.g., `1` for MA(1)). Defaults to `integer(0)`, which omits the
+MA component entirely. Absence should be expressed by omitting this
+argument or passing `integer(0)`.}
 
 \item{link}{The link function connecting the mean \eqn{\mu_t} to the linear predictor
 \eqn{\eta_t}. One of:
@@ -40,7 +42,7 @@ An object of class `"barma"` containing:
 \item{model}{A summary table with coefficients, standard errors, z-statistics,
   and p-values for hypothesis tests \eqn{H_0: \theta_i = 0}.}
 \item{fitted}{Fitted conditional mean values as a `ts` object
-  (NA-padded for burn-in period).}
+  (NA-padded for the first \eqn{m = \max(p,q)} observations).}
 \item{muhat}{Alias for `fitted` (fitted mean values).}
 \item{etahat}{Estimated linear predictor values (full vector, NA-padded).}
 \item{errorhat}{Estimated errors on predictor scale (full vector, 0-padded).}
@@ -79,8 +81,8 @@ set at time t-1.
 **Model Types** (specified via `ar` and `ma` arguments):
 \itemize{
   \item **BARMA(p,q):** Both `ar` and `ma` are specified.
-  \item **BAR(p):** Only `ar` is specified; set `ma = NA`.
-  \item **BMA(q):** Only `ma` is specified; set `ar = NA`.
+  \item **BAR(p):** Only `ar` is specified; omit `ma` or pass `integer(0)`.
+  \item **BMA(q):** Only `ma` is specified; omit `ar` or pass `integer(0)`.
 }
 
 **External Regressors**: Covariates can be included via `xreg`. The model
@@ -92,8 +94,9 @@ and lagged responses/errors.
 are obtained from the `start_values()` function.
 
 **Implementation Notes**: 
-- The conditional log-likelihood is computed, conditioning on the first
-  \eqn{m = \max(p,q)} observations (burn-in period).
+- The conditional log-likelihood is computed by conditioning on the first
+  \eqn{m = \max(p,q)} observations, which are required to initialize the
+  recursive structure of the model.
 - The 2017 Erratum corrections are implemented for correct handling of
   moving average components in the score vector and Fisher Information Matrix.
 - All computations are vectorized where possible for efficiency.
@@ -106,54 +109,63 @@ and contributions from Francisco Cribari-Neto.
 }
 \examples{
 \donttest{
-  # Example 1: Fit a BAR(1) model
+  # Example 1: Fit a BAR(1) model (no MA component)
   set.seed(2025)
-  y_sim_bar <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_bar1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    phi = 25.0,
-    link = "logit",
-    freq = 12
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
   )
 
-  # Fit the model
-  fit_bar <- barma(y_sim_bar, ar = 1, link = "logit")
+  fit_bar1 <- barma(y_sim_bar1, ar = 1, link = "logit")
+  summary(fit_bar1)
+  coef(fit_bar1)
 
-  # View results
-  summary(fit_bar)
-  coef(fit_bar)
-
-  # Example 2: Fit a BARMA(1,1) model
+  # Example 2: Fit a BARMA(1, 1) model
   set.seed(2025)
-  y_sim_barma <- simu_barma(
-    n = 250,
-    alpha = 0.0,
+  y_sim_barma11 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
     varphi = 0.6,
-    theta = 0.3,
-    phi = 25.0,
+    theta  = 0.3,
+    phi    = 25.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  fit_barma11 <- barma(y_sim_barma11, ar = 1, ma = 1, link = "logit")
+  summary(fit_barma11)
+
+  # Example 3: Fit a BMA(1) model (no AR component)
+  set.seed(2025)
+  y_sim_bma1 <- simu_barma(
+    n      = 250,
+    alpha  = 0.0,
+    theta  = 0.3,
+    phi    = 20.0,
+    link   = "logit",
+    freq   = 12
+  )
+
+  fit_bma1 <- barma(y_sim_bma1, ma = 1, link = "logit")
+  summary(fit_bma1)
+
+  # Example 4: BARMA(1, 1) model with harmonic seasonal regressors
+  hs <- sin(2 * pi * seq_along(y_sim_barma11) / 12)
+  hc <- cos(2 * pi * seq_along(y_sim_barma11) / 12)
+  X  <- cbind(hs = hs, hc = hc)
+
+  fit_barma11_xreg <- barma(
+    y_sim_barma11,
+    ar   = 1,
+    ma   = 1,
     link = "logit",
-    freq = 12
+    xreg = X
   )
-
-  # Fit ARMA structure
-  fit_barma <- barma(y_sim_barma, ar = 1, ma = 1, link = "logit")
-  summary(fit_barma)
-
-  # Example 3: BARMA(1,1) model with harmonic seasonal regressors
-  hs <- sin(2 * pi * seq_along(y_sim_barma) / 12)
-  hc <- cos(2 * pi * seq_along(y_sim_barma) / 12)
-
-  # Create regressor matrix
-  X <- cbind(hs = hs,
-             hc = hc)
-
-  fit_barma_xreg <- barma(
-    y_sim_barma,
-    ar = 1, ma = 1,
-    link = "logit", xreg = X
-  )
-  summary(fit_barma_xreg)
+  summary(fit_barma11_xreg)
 }
 
 }

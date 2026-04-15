@@ -32,7 +32,7 @@
 #' See References section for details.
 #'
 #' **Parameter Order**: Parameters should be supplied in the order:
-#' alpha, varphi (AR), theta (MA), phi, beta (regressors).
+#' alpha, varphi (AR), theta (MA), beta (regressors), phi.
 #' This matches the parameter order used by \code{\link{barma}}.
 #'
 #' @param y
@@ -40,24 +40,28 @@
 #'
 #' @param ar
 #' A numeric vector specifying the autoregressive (AR) lags
-#' (e.g., \code{c(1, 2)}). Can be \code{NA} or \code{NULL} if no AR component.
+#' (e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+#' AR component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
 #'
 #' @param ma
 #' A numeric vector specifying the moving average (MA) lags
-#' (e.g., \code{1}). Can be \code{NA} or \code{NULL} if no MA component.
+#' (e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+#' MA component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
 #'
 #' @param alpha
 #' The intercept term (numeric scalar).
 #'
 #' @param varphi
 #' A numeric vector of autoregressive (AR) parameters.
-#' Use \code{numeric(0)} or empty vector if no AR component.
-#' Length must match \code{ar} specification.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
 #'
 #' @param theta
 #' A numeric vector of moving average (MA) parameters.
-#' Use \code{numeric(0)} or empty vector if no MA component.
-#' Length must match \code{ma} specification.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
 #'
 #' @param phi
 #' The precision parameter of the BARMA model (must be positive and finite).
@@ -82,14 +86,15 @@
 #'   p is AR order, q is MA order. The matrix is symmetric and should be
 #'   positive definite at the MLE.}
 #' \item{fitted_ts}{The fitted values (conditional mean) as a \code{ts} object,
-#'   with the same time index as the input \code{y}. Values for the
-#'   burn-in period (first max_lag observations) are \code{NA}.}
+#'   with the same time index as the input \code{y}. Values for the first
+#'   \eqn{m = \max(p,q)} observations are \code{NA}.}
 #' \item{muhat_effective}{The fitted conditional means (numeric vector)
-#'   excluding the burn-in period.}
+#'   excluding the first \eqn{m} observations.}
 #' \item{etahat_full}{The estimated linear predictor values (numeric vector,
-#'   length = length(y)), with \code{NA} for burn-in period.}
+#'   length = length(y)), with \code{NA} for the first \eqn{m} observations.}
 #' \item{errorhat_full}{The estimated errors on the predictor scale
-#'   (numeric vector, length = length(y)), zero-padded for burn-in period.}
+#'   (numeric vector, length = length(y)), zero-padded for the first
+#'   \eqn{m} observations.}
 #'
 #' @references
 #' Rocha, A.V., & Cribari-Neto, F. (2009). Beta autoregressive moving
@@ -107,67 +112,88 @@
 #'
 #' @examples
 #' \donttest{
-#'   # Example 1: Fisher Information Matrix for a BAR(1) model
+#'   # Example 1: Fisher Information Matrix for a BAR(1) model (no MA component)
 #'   set.seed(2025)
-#'   y_sim_bar <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_bar1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     phi = 25.0,
-#'     link = "logit",
-#'     freq = 12
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
 #'   )
 #'
-#'   result_bar <- fim_barma(
-#'     y = y_sim_bar,
-#'     ar = 1,
-#'     ma = NA,
-#'     alpha = 0.0,
+#'   result_bar1 <- fim_barma(
+#'     y      = y_sim_bar1,
+#'     ar     = 1,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = numeric(0),
-#'     phi = 25.0,
-#'     link = "logit"
+#'     theta  = numeric(0),
+#'     phi    = 25.0,
+#'     link   = "logit"
 #'   )
 #'
 #'   # Check positive definiteness
-#'   fim <- result_bar$fisher_info_mat
+#'   fim <- result_bar1$fisher_info_mat
 #'   all(eigen(fim)$values > 0)
 #'
 #'   # Standard errors from inverse of FIM
 #'   sqrt(diag(solve(fim)))
 #'
-#'   # Example 2: Fisher Information Matrix for a BARMA(1,1) model
+#'   # Example 2: Fisher Information Matrix for a BARMA(1, 1) model
 #'   set.seed(2025)
-#'   y_sim_barma <- simu_barma(
-#'     n = 250,
-#'     alpha = 0.0,
+#'   y_sim_barma11 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = 0.3,
-#'     phi = 25.0,
-#'     link = "logit",
-#'     freq = 12
+#'     theta  = 0.3,
+#'     phi    = 25.0,
+#'     link   = "logit",
+#'     freq   = 12
 #'   )
 #'
-#'   result_barma <- fim_barma(
-#'     y = y_sim_barma,
-#'     ar = 1,
-#'     ma = 1,
-#'     alpha = 0.0,
+#'   result_barma11 <- fim_barma(
+#'     y      = y_sim_barma11,
+#'     ar     = 1,
+#'     ma     = 1,
+#'     alpha  = 0.0,
 #'     varphi = 0.6,
-#'     theta = 0.3,
-#'     phi = 25.0,
-#'     link = "logit"
+#'     theta  = 0.3,
+#'     phi    = 25.0,
+#'     link   = "logit"
 #'   )
 #'
-#'   # Standard errors
-#'   sqrt(diag(solve(result_barma$fisher_info_mat)))
+#'   sqrt(diag(solve(result_barma11$fisher_info_mat)))
+#'
+#'   # Example 3: Fisher Information Matrix for a BMA(1) model (no AR component)
+#'   set.seed(2025)
+#'   y_sim_bma1 <- simu_barma(
+#'     n      = 250,
+#'     alpha  = 0.0,
+#'     theta  = 0.3,
+#'     phi    = 20.0,
+#'     link   = "logit",
+#'     freq   = 12
+#'   )
+#'
+#'   result_bma1 <- fim_barma(
+#'     y      = y_sim_bma1,
+#'     ma     = 1,
+#'     alpha  = 0.0,
+#'     varphi = numeric(0),
+#'     theta  = 0.3,
+#'     phi    = 20.0,
+#'     link   = "logit"
+#'   )
+#'
+#'   sqrt(diag(solve(result_bma1$fisher_info_mat)))
 #' }
 #'
 #' @export
 fim_barma <- function(
     y,
-    ar,
-    ma,
+    ar   = integer(0),
+    ma   = integer(0),
     alpha,
     varphi,
     theta,
@@ -190,30 +216,35 @@ fim_barma <- function(
   # Transform response using link function
   y_transformed <- linkfun(y)
   
-  # Check for presence of AR, MA, and external regressors
-  has_ar <- !is.null(ar) && !any(is.na(ar)) && length(ar) > 0
-  has_ma <- !is.null(ma) && !any(is.na(ma)) && length(ma) > 0
-  has_xreg <- !is.null(xreg)
+  # Resolve lag vectors to integer(0) if absent
+  ar_lags <- if (length(ar) > 0) ar else integer(0)
+  ma_lags <- if (length(ma) > 0) ma else integer(0)
   
-  # Handle empty lag cases
-  ar_lags <- if (has_ar) ar else integer(0)
-  ma_lags <- if (has_ma) ma else integer(0)
+  # Force varphi / theta to numeric(0) when the corresponding component
+  # is absent
+  varphi <- if (length(ar_lags) > 0) varphi else numeric(0)
+  theta  <- if (length(ma_lags) > 0) theta  else numeric(0)
+  
+  has_xreg <- !is.null(xreg)
   
   n_ar_params <- length(ar_lags)
   n_ma_params <- length(ma_lags)
   
-  # Setup Regressors ---
+  # Named flags for readability throughout the function
+  has_ar <- n_ar_params > 0
+  has_ma <- n_ma_params > 0
+  
+  # Setup Regressors
   if (has_xreg) {
     if (!is.matrix(xreg)) xreg <- as.matrix(xreg)
     n_beta_params <- ncol(xreg)
-    # Pre-compute X * beta for efficiency (vectorized operation)
     xb <- as.vector(xreg %*% beta)
   } else {
     n_beta_params <- 0
     xb <- numeric(length(y))
   }
   
-  # Determine maximum lag for burn-in period
+  # Determine maximum lag required to initialize the recursive structure
   ar_order <- if (has_ar) max(ar_lags) else 0L
   ma_order <- if (has_ma) max(ma_lags) else 0L
   max_lag  <- max(ar_order, ma_order)
@@ -230,89 +261,43 @@ fim_barma <- function(
   
   # Initialize derivative matrices for chain rule calculations
   d_eta_d_alpha  <- rep(0, n_obs)
-  
-  d_eta_d_varphi <- if (has_ar) {
-    matrix(0, nrow = n_obs, ncol = n_ar_params)
-  } else {
-    matrix(0, nrow = n_obs, ncol = 0)
-  }
-  
-  d_eta_d_theta  <- if (has_ma) {
-    matrix(0, nrow = n_obs, ncol = n_ma_params)
-  } else {
-    matrix(0, nrow = n_obs, ncol = 0)
-  }
-  
-  d_eta_d_beta <- if (has_xreg) {
-    matrix(0, nrow = n_obs, ncol = n_beta_params)
-  } else {
-    matrix(0, nrow = n_obs, ncol = 0)
-  }
+  d_eta_d_varphi <- matrix(0, nrow = n_obs, ncol = n_ar_params)
+  d_eta_d_theta  <- matrix(0, nrow = n_obs, ncol = n_ma_params)
+  d_eta_d_beta   <- matrix(0, nrow = n_obs, ncol = n_beta_params)
   
   # Recursively compute predictor, errors, and their derivatives
   for (t in (max_lag + 1):n_obs) {
     
-    # Part A: Compute Linear Predictor and Score Error ---
-    eta[t] <- alpha + xb[t]
+    # Part A: Compute Linear Predictor and Error
+    eta[t] <- alpha + xb[t] +
+      drop(crossprod(varphi, y_transformed[t - ar_lags] - xb[t - ar_lags])) +
+      drop(crossprod(theta,  error[t - ma_lags]))
     
-    if (has_ar) {
-      prev_terms <- y_transformed[t - ar_lags] - xb[t - ar_lags]
-      eta[t] <- eta[t] + drop(crossprod(varphi, prev_terms))
-    }
-    if (has_ma) {
-      eta[t] <- eta[t] + drop(crossprod(theta, error[t - ma_lags]))
-    }
-    
-    # Compute prediction error (on transformed scale)
     error[t] <- y_transformed[t] - eta[t]
     
-    # Part B: Compute Recursive Derivatives ---
+    # Part B: Compute Recursive Derivatives
     
     # 1. Derivative w.r.t. alpha
-    d_eta_d_alpha[t] <- 1
-    if (has_ma) {
-      ma_adj <- drop(crossprod(theta, d_eta_d_alpha[t - ma_lags]))
-      d_eta_d_alpha[t] <- 1 - ma_adj
-    }
+    d_eta_d_alpha[t] <- 1 -
+      drop(crossprod(theta, d_eta_d_alpha[t - ma_lags]))
     
     # 2. Derivative w.r.t. AR (varphi)
     if (has_ar) {
-      d_eta_d_varphi[t, ] <- y_transformed[t - ar_lags] - xb[t - ar_lags]
-      if (has_ma) {
-        ma_adj <- drop(
-          crossprod(theta, d_eta_d_varphi[t - ma_lags, , drop = FALSE])
-        )
-        d_eta_d_varphi[t, ] <- d_eta_d_varphi[t, ] - ma_adj
-      }
+      d_eta_d_varphi[t, ] <- y_transformed[t - ar_lags] - xb[t - ar_lags] -
+        drop(crossprod(theta, d_eta_d_varphi[t - ma_lags, , drop = FALSE]))
     }
     
     # 3. Derivative w.r.t. MA (theta)
     if (has_ma) {
-      d_eta_d_theta[t, ] <- error[t - ma_lags]
-      ma_adj <- drop(
-        crossprod(theta, d_eta_d_theta[t - ma_lags, , drop = FALSE])
-      )
-      d_eta_d_theta[t, ] <- d_eta_d_theta[t, ] - ma_adj
+      d_eta_d_theta[t, ] <- error[t - ma_lags] -
+        drop(crossprod(theta, d_eta_d_theta[t - ma_lags, , drop = FALSE]))
     }
     
     # 4. Derivative w.r.t. beta (Regressors)
     if (has_xreg) {
-      base_grad <- xreg[t, ]
-      if (has_ar) {
-        ar_adj <- drop(
-          crossprod(varphi, xreg[t - ar_lags, , drop = FALSE])
-        )
-        base_grad <- base_grad - ar_adj
-      }
-      
-      d_eta_d_beta[t, ] <- base_grad
-      
-      if (has_ma) {
-        ma_adj <- drop(
-          crossprod(theta, d_eta_d_beta[t - ma_lags, , drop = FALSE])
-        )
-        d_eta_d_beta[t, ] <- d_eta_d_beta[t, ] - ma_adj
-      }
+      d_eta_d_beta[t, ] <- xreg[t, ] -
+        drop(crossprod(varphi, xreg[t - ar_lags, , drop = FALSE])) -
+        drop(crossprod(theta,  d_eta_d_beta[t - ma_lags, , drop = FALSE]))
     }
   }
   
@@ -320,7 +305,7 @@ fim_barma <- function(
   # 3. GET EFFECTIVE (NON-NA) OBSERVATIONS
   # --------------------------------------------------------------------------
   
-  # Extract observations used in likelihood (excluding burn-in period)
+  # Extract observations used in likelihood (excluding first m observations)
   idx_effective <- (max_lag + 1):n_obs
   eta_eff <- eta[idx_effective]
   mu_eff  <- linkinv(eta = eta_eff)
@@ -356,15 +341,15 @@ fim_barma <- function(
   # d(mu)/d(eta) - derivative of inverse link function
   mu_eta_val <- mu_eta_fun(eta = eta_eff)
   
-  # Weight Vector ---
+  # Vector W
   # W = phi * {psi'(mu*phi) + psi'((1-mu)*phi)} * (mu_eta)^2
   w_t_vec <- phi * (trigamma_p + trigamma_q) * mu_eta_val^2
   
-  # Vector c ---
+  # Vector c
   # c = phi * {psi'(mu*phi)*mu - psi'((1-mu)*phi)*(1-mu)}
   c_t_vec <- phi * (trigamma_p * mu_eff - trigamma_q * (1 - mu_eff))
   
-  # Vector d ---
+  # Vector d
   # d = psi'(mu*phi)*mu^2 + psi'((1-mu)*phi)*(1-mu)^2 - psi'(phi)
   d_t_vec <- trigamma_p * mu_eff^2 +
     trigamma_q * (1 - mu_eff)^2 -
@@ -374,7 +359,7 @@ fim_barma <- function(
   # 5. CALCULATE FIM BLOCKS
   # --------------------------------------------------------------------------
   
-  # Helper to compute weighted cross-product
+  # Helper to compute the cross-product
   calc_block <- function(X, Y, w, scale = 1) {
     if (length(X) == 0 || length(Y) == 0) {
       return(matrix(numeric(0), 0, 0))
@@ -384,14 +369,14 @@ fim_barma <- function(
     Y <- as.matrix(Y)
     
     if (length(w) != nrow(Y)) {
-      stop("Weight vector length must match number of rows in Y.")
+      stop("The vector length must match number of rows in Y.")
     }
     
     result <- crossprod(X, Y * w) * scale
     return(result)
   }
   
-  # Blocks scaling with phi ---
+  # Blocks scaling with phi
   K_aa <- calc_block(s_vec, s_vec, w_t_vec, scale = phi)
   
   K_ap <- if (has_ar) {
@@ -448,7 +433,7 @@ fim_barma <- function(
     matrix(0, 0, 0)
   }
   
-  # Blocks involving Phi ---
+  # Blocks involving Phi
   K_aphi <- as.numeric(crossprod(s_vec, mu_eta_val * c_t_vec))
   
   K_pphi <- if (has_ar) {
@@ -469,14 +454,14 @@ fim_barma <- function(
     numeric(0)
   }
   
-  # Phi vs Phi Block ---
+  # Phi vs Phi Block
   K_phiphi <- sum(d_t_vec)
   
   # --------------------------------------------------------------------------
   # 6. ASSEMBLE AND RETURN THE FINAL FIM
   # --------------------------------------------------------------------------
   
-  # Parameter order: Alpha, AR, MA, Beta, Phi
+  # Parameter order: alpha, varphi, theta, beta, Phi
   n_params <- 1 + n_ar_params + n_ma_params + n_beta_params + 1
   fim <- matrix(NA_real_, nrow = n_params, ncol = n_params)
   
@@ -502,8 +487,9 @@ fim_barma <- function(
   
   idx_phi <- n_params
   
-  # Fill Matrix (Symmetric) ---
+  # Fill Matrix (Symmetric)
   fim[idx_a, idx_a]   <- K_aa
+  
   if (has_ar) {
     fim[idx_a, idx_p] <- K_ap
     fim[idx_p, idx_a] <- t(K_ap)
@@ -551,7 +537,7 @@ fim_barma <- function(
   
   fim[idx_phi, idx_phi] <- K_phiphi
   
-  # Name the matrix rows and columns ---
+  # Name the matrix rows and columns
   names_varphi <- if (has_ar) paste0("varphi", ar_lags) else character(0)
   names_theta  <- if (has_ma) paste0("theta", ma_lags) else character(0)
   names_beta   <- if (has_xreg) colnames(xreg) else character(0)
