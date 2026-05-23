@@ -2,9 +2,18 @@
 % Please edit documentation in R/barma.R
 \name{barma}
 \alias{barma}
-\title{Fit Beta Autoregressive Moving Average (BARMA) Models via Maximum Likelihood}
+\title{Fit Beta Autoregressive Moving Average (BARMA) Models via
+Conditional Maximum Likelihood}
 \usage{
-barma(y, ar = integer(0), ma = integer(0), link = "logit", xreg = NULL)
+barma(
+  y,
+  ar = integer(0),
+  ma = integer(0),
+  link = "logit",
+  xreg = NULL,
+  optimization = list(method = "BFGS", lower = -Inf, upper = Inf),
+  penalty = FALSE
+)
 }
 \arguments{
 \item{y}{A time series object (`ts`) with values strictly in the open interval (0, 1).
@@ -32,6 +41,28 @@ argument or passing `integer(0)`.}
 \item{xreg}{A matrix or data frame of external regressors (covariates), optional.
 Must have the same number of rows as `y`. If provided, its columns
 are included in the linear predictor with associated coefficients in `beta`.}
+
+\item{optimization}{A named list controlling the optimization procedure. Recognized fields:
+\describe{
+  \item{\code{method}}{Character string specifying the algorithm. One of
+    \code{"BFGS"} (default), \code{"L-BFGS-B"}, or \code{"lbfgs"}.}
+  \item{\code{lower}}{Numeric vector or scalar of lower bounds, used only
+    by \code{"L-BFGS-B"}. Defaults to \code{-Inf}.}
+  \item{\code{upper}}{Numeric vector or scalar of upper bounds, used only
+    by \code{"L-BFGS-B"}. Defaults to \code{Inf}.}
+}}
+
+\item{penalty}{Logical. If \code{TRUE}, the ridge penalization scheme of Cribari-Neto,
+Costa and Fonseca (2025) is applied during conditional maximum likelihood
+estimation. The penalty term \eqn{(n - a)\lambda_n \|\boldsymbol{\nu}\|^2}
+is subtracted from the conditional log-likelihood, where
+\eqn{\lambda_n = 1/(n - a)^{0.9}} and \eqn{\boldsymbol{\nu}} collects
+\eqn{\alpha}, \eqn{\boldsymbol{\varphi}}, and \eqn{\boldsymbol{\theta}}.
+The precision parameter \eqn{\phi} and regression coefficients
+\eqn{\boldsymbol{\beta}} are excluded from penalization.
+Ridge penalization enhances the curvature of the conditional log-likelihood
+surface, reducing convergence failures and the occurrence of implausible
+estimates. Defaults to \code{FALSE}.}
 }
 \value{
 An object of class `"barma"` containing:
@@ -46,19 +77,21 @@ An object of class `"barma"` containing:
 \item{muhat}{Alias for `fitted` (fitted mean values).}
 \item{etahat}{Estimated linear predictor values (full vector, NA-padded).}
 \item{errorhat}{Estimated errors on predictor scale (full vector, 0-padded).}
-\item{loglik}{The conditional log-likelihood at the MLE.}
-\item{fisher_info_mat}{The observed Fisher Information Matrix.}
+\item{loglik}{The conditional log-likelihood at the CMLE.}
+\item{fisher_info_mat}{The expected Fisher Information Matrix
+(Rocha & Cribari-Neto, 2009).}
 \item{conv}{Convergence code from `optim` (0 = success).}
 \item{alpha, beta, varphi, theta, phi}{Individual parameter estimates.}
 \item{start_values}{Initial parameter values used in optimization.}
 \item{call}{The original function call.}
-\item{opt}{Raw output object from `optim()` call.}
+\item{opt}{Cleaned output list from the optimization procedure.}
+\item{opt_raw}{Raw output object returned directly by `optim()` or `lbfgs()`.}
 }
 \description{
 Fits a Beta Autoregressive Moving Average (BARMA) model to time series data
-valued in (0, 1) using Maximum Likelihood Estimation (MLE). The function
-performs complete model estimation including parameter estimation, hypothesis
-testing infrastructure, and model diagnostics.
+valued in (0, 1) using Conditional Maximum Likelihood Estimation (CMLE).
+The function performs complete model estimation including parameter
+estimation, hypothesis testing infrastructure, and model diagnostics.
 }
 \details{
 Fit Beta Autoregressive Moving Average (BARMA) Models
@@ -71,7 +104,7 @@ gradient calculation, and Fisher Information Matrix estimation.
 
 **Model Specification**: The BARMA model is defined as:
 
-\deqn{g(\mu_t) = \alpha + X_t\beta + \sum_{i=1}^{p} \varphi_i 
+\deqn{g(\mu_t) = \alpha + X_t\beta + \sum_{i=1}^{p} \varphi_i
 (g(y_{t-i}) - X_{t-i}\beta) + \sum_{j=1}^{q} \theta_j \epsilon_{t-j}}
 
 where \eqn{y_t | F_{t-1} \sim Beta(\mu_t\phi, (1-\mu_t)\phi)},
@@ -89,11 +122,13 @@ set at time t-1.
 becomes a regression BARMA, where the mean depends on current covariates
 and lagged responses/errors.
 
-**Optimization**: The function uses the BFGS quasi-Newton algorithm via
-\code{\link{optim}} with analytic gradients for efficiency. Initial values
-are obtained from the `start_values()` function.
+**Optimization**: The function uses quasi-Newton algorithms
+(BFGS or L-BFGS-B) via \code{\link[stats]{optim}}, or the
+\code{\link[lbfgs]{lbfgs}} function, utilizing analytic gradients for
+efficiency. Initial values are obtained from the internal `start_values()`
+function.
 
-**Implementation Notes**: 
+**Implementation Notes**:
 - The conditional log-likelihood is computed by conditioning on the first
   \eqn{m = \max(p,q)} observations, which are required to initialize the
   recursive structure of the model.
@@ -109,63 +144,88 @@ and contributions from Francisco Cribari-Neto.
 }
 \examples{
 \donttest{
-  # Example 1: Fit a BAR(1) model (no MA component)
-  set.seed(2025)
-  y_sim_bar1 <- simu_barma(
-    n      = 250,
-    alpha  = 0.0,
-    varphi = 0.6,
-    phi    = 25.0,
-    link   = "logit",
-    freq   = 12
+# Example 1: Fit a BAR(1) model (no MA component)
+set.seed(2025)
+y_sim_bar1 <- simu_barma(
+  n      = 250,
+  alpha  = 0.0,
+  varphi = 0.6,
+  phi    = 25.0,
+  link   = "logit",
+  freq   = 12
+)
+
+fit_bar1 <- barma(y_sim_bar1, ar = 1, link = "logit")
+summary(fit_bar1)
+coef(fit_bar1)
+
+# Example 2: Fit a BARMA(1, 1) model
+set.seed(2025)
+y_sim_barma11 <- simu_barma(
+  n      = 250,
+  alpha  = 0.0,
+  varphi = 0.6,
+  theta  = 0.3,
+  phi    = 25.0,
+  link   = "logit",
+  freq   = 12
+)
+
+fit_barma11 <- barma(y_sim_barma11, ar = 1, ma = 1, link = "logit")
+summary(fit_barma11)
+
+# Example 3: Fit a BMA(1) model (no AR component)
+set.seed(2025)
+y_sim_bma1 <- simu_barma(
+  n      = 250,
+  alpha  = 0.0,
+  theta  = 0.3,
+  phi    = 20.0,
+  link   = "logit",
+  freq   = 12
+)
+
+fit_bma1 <- barma(y_sim_bma1, ma = 1, link = "logit")
+summary(fit_bma1)
+
+# Example 4: BARMA(1, 1) model with harmonic seasonal regressors
+hs <- sin(2 * pi * seq_along(y_sim_barma11) / 12)
+hc <- cos(2 * pi * seq_along(y_sim_barma11) / 12)
+X <- cbind(hs = hs, hc = hc)
+
+fit_barma11_xreg <- barma(
+  y_sim_barma11,
+  ar   = 1,
+  ma   = 1,
+  link = "logit",
+  xreg = X
+)
+summary(fit_barma11_xreg)
+
+# Example 5: Fit a BARMA(1, 1) model using L-BFGS-B
+set.seed(2025)
+y_sim_barma11_LBFGSB <- simu_barma(
+  n      = 250,
+  alpha  = 0.0,
+  varphi = 0.6,
+  theta  = 0.3,
+  phi    = 25.0,
+  link   = "logit",
+  freq   = 12
+)
+
+fit_barma11_LBFGSB <- barma(
+  y_sim_barma11_LBFGSB,
+  ar = 1,
+  ma = 1,
+  link = "logit",
+  optimization = list(
+    method = "L-BFGS-B",
+    upper = c(Inf, 1, 1, Inf)
   )
+)
 
-  fit_bar1 <- barma(y_sim_bar1, ar = 1, link = "logit")
-  summary(fit_bar1)
-  coef(fit_bar1)
-
-  # Example 2: Fit a BARMA(1, 1) model
-  set.seed(2025)
-  y_sim_barma11 <- simu_barma(
-    n      = 250,
-    alpha  = 0.0,
-    varphi = 0.6,
-    theta  = 0.3,
-    phi    = 25.0,
-    link   = "logit",
-    freq   = 12
-  )
-
-  fit_barma11 <- barma(y_sim_barma11, ar = 1, ma = 1, link = "logit")
-  summary(fit_barma11)
-
-  # Example 3: Fit a BMA(1) model (no AR component)
-  set.seed(2025)
-  y_sim_bma1 <- simu_barma(
-    n      = 250,
-    alpha  = 0.0,
-    theta  = 0.3,
-    phi    = 20.0,
-    link   = "logit",
-    freq   = 12
-  )
-
-  fit_bma1 <- barma(y_sim_bma1, ma = 1, link = "logit")
-  summary(fit_bma1)
-
-  # Example 4: BARMA(1, 1) model with harmonic seasonal regressors
-  hs <- sin(2 * pi * seq_along(y_sim_barma11) / 12)
-  hc <- cos(2 * pi * seq_along(y_sim_barma11) / 12)
-  X  <- cbind(hs = hs, hc = hc)
-
-  fit_barma11_xreg <- barma(
-    y_sim_barma11,
-    ar   = 1,
-    ma   = 1,
-    link = "logit",
-    xreg = X
-  )
-  summary(fit_barma11_xreg)
+summary(fit_barma11_LBFGSB)
 }
 
 }
@@ -177,6 +237,11 @@ average models. \emph{TEST}, 18(3), 529-545.
 Rocha, A.V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
 moving average models. \emph{TEST}, 26, 451-459.
 \doi{10.1007/s11749-017-0528-4}
+
+Cribari-Neto, F., Costa, E., & Fonseca, R.V. (2025). Numerical stability
+enhancements in beta autoregressive moving average model estimation.
+\emph{Brazilian Journal of Probability and Statistics}, 39(4), 410-437.
+\doi{10.1214/25-BJPS645}
 }
 \seealso{
 \code{\link{simu_barma}} for simulation,
@@ -185,8 +250,8 @@ moving average models. \emph{TEST}, 26, 451-459.
 \code{\link{fim_barma}} for Fisher Information Matrix
 }
 \author{
-Everton da Costa (Federal University of Pernambuco, 
+Everton da Costa (Federal University of Pernambuco,
 \email{everto.cost@gmail.com});
-Francisco Cribari-Neto (Federal University of Pernambuco, 
+Francisco Cribari-Neto (Federal University of Pernambuco,
 \email{francisco.cribari@ufpe.br})
 }

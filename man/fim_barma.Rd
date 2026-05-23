@@ -10,12 +10,13 @@ fim_barma(
   ar = integer(0),
   ma = integer(0),
   alpha,
-  varphi,
-  theta,
+  varphi = numeric(0),
+  theta = numeric(0),
   phi,
-  link,
+  link = "logit",
   xreg = NULL,
-  beta = NULL
+  beta = NULL,
+  penalty = FALSE
 )
 }
 \arguments{
@@ -52,6 +53,15 @@ Must have the same number of rows as length of \code{y}.}
 
 \item{beta}{A numeric vector of regression coefficients for \code{xreg} (optional).
 Length must match number of columns in \code{xreg}.}
+
+\item{penalty}{Logical. If \code{TRUE}, the ridge penalty of Cribari-Neto, Costa and
+Fonseca (2025) is added to the Fisher Information Matrix, yielding the
+penalized FIM \eqn{K_{\text{pen}}(\boldsymbol{\nu}) = K(\boldsymbol{\nu})
++ 2(n-a)\Lambda}, where \eqn{\Lambda =
+\text{diag}\{\lambda_n,\ldots,\lambda_n, 0,\ldots,0\}} with
+\eqn{\lambda_n = 1/(n-a)^{0.9}} applied to \eqn{\alpha},
+\eqn{\boldsymbol{\varphi}}, and \eqn{\boldsymbol{\theta}} only.
+Defaults to \code{FALSE}.}
 }
 \value{
 A list containing:
@@ -71,7 +81,7 @@ A list containing:
   \eqn{m} observations.}
 }
 \description{
-Computes the observed Fisher Information Matrix (FIM) of a Beta
+Computes the expected Fisher Information Matrix (FIM) of a Beta
 Autoregressive Moving Average (BARMA) model. This function also
 efficiently returns auxiliary values like fitted values and residuals.
 
@@ -88,9 +98,9 @@ This function is designed for users who:
 Fisher Information Matrix for BARMA Models
 
 
-The Fisher Information Matrix is computed from the outer product of
-score vectors at the MLE, which provides the observed FIM. The FIM
-is used to obtain standard errors via \code{sqrt(diag(solve(FIM)))}.
+The expected Fisher Information Matrix is computed analytically using
+the trigamma-based expressions from Rocha and Cribari-Neto (2009).
+Standard errors are obtained via \code{sqrt(diag(solve(FIM)))}.
 
 **Non-Diagonal Structure**: Unlike generalized linear models, the FIM
 is not block-diagonal due to the coupling introduced by the ARMA
@@ -192,6 +202,11 @@ average models. \emph{TEST}, 18(3), 529-545.
 Rocha, A.V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
 moving average models. \emph{TEST}, 26, 451-459.
 \doi{10.1007/s11749-017-0528-4}
+
+Cribari-Neto, F., Costa, E., & Fonseca, R.V. (2025). Numerical stability
+enhancements in beta autoregressive moving average model estimation.
+\emph{Brazilian Journal of Probability and Statistics}, 39(4), 410-437.
+\doi{10.1214/25-BJPS645}
 }
 \seealso{
 \code{\link{barma}} for model fitting,

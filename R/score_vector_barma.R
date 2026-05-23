@@ -10,29 +10,61 @@
 #'   \item Integrate BARMA models into their own workflows
 #' }
 #'
-#' @param y A time series object (\code{ts}) with values strictly in (0, 1).
-#' @param ar A numeric vector specifying the autoregressive (AR) lags.
-#'   Defaults to \code{integer(0)}, which omits the AR component entirely.
-#'   Absence should be expressed by omitting this argument or passing
-#'   \code{integer(0)}.
-#' @param ma A numeric vector specifying the moving average (MA) lags.
-#'   Defaults to \code{integer(0)}, which omits the MA component entirely.
-#'   Absence should be expressed by omitting this argument or passing
-#'   \code{integer(0)}.
-#' @param alpha The intercept parameter.
-#' @param varphi A numeric vector of AR parameters.
-#'   Absence should be expressed by omitting this argument or passing
-#'   \code{numeric(0)}.
-#' @param theta A numeric vector of MA parameters.
-#'   Absence should be expressed by omitting this argument or passing
-#'   \code{numeric(0)}.
-#' @param phi The precision parameter (must be positive).
-#' @param link A character string specifying the link function.
-#'   One of \code{"logit"}, \code{"probit"}, \code{"cloglog"},
-#'   or \code{"loglog"}.
-#' @param xreg An optional matrix of external regressors.
-#' @param beta An optional numeric vector of regression coefficients
-#'   corresponding to \code{xreg}.
+#' @param y
+#' A numeric vector representing the time series data, with values
+#' strictly in (0, 1).
+#'
+#' @param ar
+#' A numeric vector specifying the autoregressive (AR) lags
+#' (e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+#' AR component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
+#'
+#' @param ma
+#' A numeric vector specifying the moving average (MA) lags
+#' (e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+#' MA component entirely. Absence should be expressed by omitting this
+#' argument or passing \code{integer(0)}.
+#'
+#' @param alpha
+#' The intercept term (numeric scalar).
+#'
+#' @param varphi
+#' A numeric vector of autoregressive (AR) parameters.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
+#'
+#' @param theta
+#' A numeric vector of moving average (MA) parameters.
+#' Absence should be expressed by omitting this argument or passing
+#' \code{numeric(0)}.
+#'
+#' @param phi
+#' The precision parameter of the BARMA model (must be positive and finite).
+#' Larger values indicate less variance for a given mean.
+#'
+#' @param link
+#' A character string specifying the link function:
+#' \code{"logit"} (default), \code{"probit"}, or \code{"cloglog"}.
+#'
+#' @param xreg
+#' A matrix or data frame of static regressors (optional).
+#' Must have the same number of rows as length of \code{y}.
+#'
+#' @param beta
+#' A numeric vector of regression coefficients for \code{xreg} (optional).
+#' Length must match number of columns in \code{xreg}.
+#'
+#' @param penalty
+#' Logical. If \code{TRUE}, the gradient of the ridge penalty of
+#' Cribari-Neto, Costa and Fonseca (2025) is subtracted from the score
+#' vector, yielding the penalized score
+#' \eqn{S_{\text{pen}}(\boldsymbol{\nu}) = S(\boldsymbol{\nu}) -
+#' 2(n-a)\lambda_n \boldsymbol{\nu}}, where \eqn{\lambda_n =
+#' 1/(n-a)^{0.9}} and \eqn{\boldsymbol{\nu}} collects \eqn{\alpha},
+#' \eqn{\boldsymbol{\varphi}}, and \eqn{\boldsymbol{\theta}}
+#' (\eqn{\phi} and \eqn{\boldsymbol{\beta}} are excluded).
+#' Defaults to \code{FALSE}.
 #'
 #' @return A numeric vector of the same length as the parameter vector,
 #'   giving the partial derivatives of the log-likelihood with respect
@@ -104,16 +136,26 @@
 #'     ma     = 1,
 #'     alpha  = 0.0,
 #'     varphi = numeric(0),
-#'     theta  = 0.6,
-#'     phi    = 25.0,
+#'     theta  = 0.3,
+#'     phi    = 20.0,
 #'     link   = "logit"
 #'   )
 #' }
 #'
 #' @export
-score_vector_barma <- function(y, ar = integer(0), ma = integer(0),
-                               alpha, varphi, theta, phi, link,
-                               xreg = NULL, beta = NULL) {
+score_vector_barma <- function(
+    y,
+    ar   = integer(0),
+    ma   = integer(0),
+    alpha,
+    varphi = numeric(0),
+    theta = numeric(0),
+    phi,
+    link = "logit",
+    xreg = NULL,
+    beta = NULL, 
+    penalty = FALSE
+) {
   
   # ------------------------------------------------------------------------
   # 1. Validate Precision Parameter
@@ -128,9 +170,9 @@ score_vector_barma <- function(y, ar = integer(0), ma = integer(0),
   # 2. Determine Model Structure
   # ------------------------------------------------------------------------
   
-  # Resolve lag vectors to integer(0) if absent.
-  ar_lags <- if (length(ar) > 0) ar else integer(0)
-  ma_lags <- if (length(ma) > 0) ma else integer(0)
+  # Lag vectors
+  ar_lags <- ar
+  ma_lags <- ma
   
   # Force varphi / theta to numeric(0) when the corresponding component
   # is absent, so that drop(crossprod(numeric(0), numeric(0))) == 0.
@@ -296,6 +338,34 @@ score_vector_barma <- function(y, ar = integer(0), ma = integer(0),
                    score_theta, 
                    score_beta,
                    score_phi)
+  
+  # --------------------------------------------------------------------------
+  # 7. RIDGE PENALIZATION (gradient of the penalty term)
+  # --------------------------------------------------------------------------
+  if (penalty) {
+    
+    # Penalized score function (Cribari-Neto, Costa and Fonseca, 2025, Section 2):
+    #   S_pen(nu) = S(nu) - 2 * (n - a) * lambda_n * nu
+    # where lambda_n is computed by .barma_ridge_lambda().
+    # phi and beta are excluded from penalization (see paper, Section 2).
+    lambda <- .barma_ridge_lambda(n_obs, max_lag)
+    
+    # Gradient of the penalty w.r.t. each parameter: 
+    # d/d(nu_j) [(n-a)*lambda*nu_j^2] = 2*(n-a)*lambda*nu_j
+    # Order must match final_score: (alpha, varphi, theta, beta, phi)
+    penalty_grad_raw <- c(
+      2 * alpha,              # intercept
+      2 * varphi,             # AR parameters
+      2 * theta,              # MA parameters
+      rep(0, n_beta_params),  # beta: not penalized
+      0                       # phi:  not penalized
+    )
+    
+    penalty_term <- (n_obs - max_lag) * lambda * penalty_grad_raw
+    
+    final_score <- final_score - penalty_term
+    
+  }
   
   if (any(!is.finite(final_score))) {
     warning("Non-finite values in score vector; returning zeros")

@@ -35,9 +35,11 @@ print.barma <- function(x, ...) {
   # Print the coefficients
   if (!is.null(x$coef)) {
     cat("\nCoefficients:\n")
-    print(x$coef)
+    # This is the CRAN standard for printing a 1D named vector safely
+    print.default(format(x$coef, digits = max(3, getOption("digits") - 3)), 
+                  print.gap = 2, quote = FALSE)
   } else {
-    cat("\nNo coefficients found in object.\n")
+    cat("\nNo coefficients found.\n")
   }
   
   # Add a warning if convergence was not reached

@@ -18,12 +18,12 @@
 #' @details
 #' The log-likelihood is computed as:
 #' \deqn{\ell = \sum_{t=m+1}^{n} \log f(y_t | \mu_t, \phi)}
-#' 
+#'
 #' where \eqn{f} is the Beta density with shape parameters
 #' \eqn{shape1 = \mu_t * \phi} and \eqn{shape2 = (1-\mu_t)*\phi}.
 #'
 #' The linear predictor is constructed as:
-#' \deqn{\eta_t = \alpha + X_t \beta + \sum_{i=1}^{p} \varphi_i 
+#' \deqn{\eta_t = \alpha + X_t \beta + \sum_{i=1}^{p} \varphi_i
 #' (y_{t-i} - X_{t-i}\beta) + \sum_{j=1}^{q} \theta_j \epsilon_{t-j}}
 #'
 #' **Important**: This function implements the corrections from the 2017
@@ -79,8 +79,23 @@
 #' A numeric vector of regression coefficients for \code{xreg} (optional).
 #' Length must match number of columns in \code{xreg}.
 #'
+#' @param penalty
+#' Logical. If \code{TRUE}, a ridge penalty is subtracted from the
+#' conditional log-likelihood, yielding the penalized conditional
+#' log-likelihood proposed by Cribari-Neto, Costa and Fonseca (2025).
+#' The penalty term is \eqn{(n - a) \lambda_n \|\boldsymbol{\nu}\|^2},
+#' where \eqn{\lambda_n = 1/(n - a)^{0.9}} and \eqn{\boldsymbol{\nu}}
+#' collects \eqn{\alpha}, \eqn{\boldsymbol{\varphi}}, and
+#' \eqn{\boldsymbol{\theta}} (the precision parameter \eqn{\phi} and
+#' regression coefficients \eqn{\boldsymbol{\beta}} are excluded).
+#' Defaults to \code{FALSE}.
+#'
 #' @return
-#' A numeric scalar representing the conditional log-likelihood value.
+#' A numeric scalar representing the (penalized) conditional log-likelihood
+#' value. When \code{penalty = FALSE} (default), the standard conditional
+#' log-likelihood is returned. When \code{penalty = TRUE}, the ridge-penalized
+#' conditional log-likelihood of Cribari-Neto, Costa and Fonseca (2025) is
+#' returned instead.
 #' Returns \code{-Inf} if:
 #' \itemize{
 #'   \item \code{phi} is non-positive or non-finite
@@ -97,6 +112,11 @@
 #' Rocha, A.V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
 #' moving average models. \emph{TEST}, 26, 451-459.
 #' \doi{10.1007/s11749-017-0528-4}
+#'
+#' Cribari-Neto, F., Costa, E., & Fonseca, R.V. (2025). Numerical stability
+#' enhancements in beta autoregressive moving average model estimation.
+#' \emph{Brazilian Journal of Probability and Statistics}, 39(4), 410-437.
+#' \doi{10.1214/25-BJPS645}
 #'
 #' @seealso
 #' \code{\link{barma}} for model fitting,
@@ -169,6 +189,21 @@
 #'     phi    = 20.0,
 #'     link   = "logit"
 #'   )
+#'
+#'   # Example 4: Ridge-penalized log-likelihood for a BARMA(1, 1) model
+#'   # Uses penalty = TRUE as recommended by Cribari-Neto, Costa and
+#'   # Fonseca (2025, BJPS) to improve numerical stability.
+#'   loglik_barma(
+#'     y       = y_sim_barma11,
+#'     ar      = 1,
+#'     ma      = 1,
+#'     alpha   = 0.0,
+#'     varphi  = 0.6,
+#'     theta   = 0.3,
+#'     phi     = 25.0,
+#'     link    = "logit",
+#'     penalty = TRUE
+#'   )
 #' }
 #'
 #' @export
@@ -177,12 +212,13 @@ loglik_barma <- function(
     ar   = integer(0),
     ma   = integer(0),
     alpha,
-    varphi,
-    theta,
+    varphi = numeric(0),
+    theta = numeric(0),
     phi,
-    link,
+    link = "logit",
     xreg = NULL,
-    beta = NULL
+    beta = NULL, 
+    penalty = FALSE
 ) {
   
   # --------------------------------------------------------------------------
@@ -218,9 +254,9 @@ loglik_barma <- function(
   # 2. DETERMINE MODEL STRUCTURE 
   # --------------------------------------------------------------------------
   
-  # Resolve lag vectors to integer(0) if absent.
-  ar_lags <- if (length(ar) > 0) ar else integer(0)
-  ma_lags <- if (length(ma) > 0) ma else integer(0)
+  # Lag vectors
+  ar_lags <- ar
+  ma_lags <- ma
   
   # Force varphi / theta to numeric(0) when the corresponding component
   # is absent, so that drop(crossprod(numeric(0), numeric(0))) == 0.
@@ -286,7 +322,7 @@ loglik_barma <- function(
   # Transform response using link function
   y_transformed <- linkfun(y)
   
-  # Determine maximum lag for burn-in period
+  # Determine maximum lag
   ar_order <- if (length(ar_lags) > 0) max(ar_lags) else 0
   ma_order <- if (length(ma_lags) > 0) max(ma_lags) else 0
   max_lag  <- max(ar_order, ma_order)
@@ -302,11 +338,11 @@ loglik_barma <- function(
   }
   
   # --------------------------------------------------------------------------
-  # 4. CALCULATE ERROR AND PREDICTOR ITERATIVELY
+  # 4. CALCULATE ERROR AND PREDICTOR
   # --------------------------------------------------------------------------
   
   # Initialize containers for linear predictor and errors
-  # Observations 1:max_lag will have 0/NA values (burn-in period)
+  # Observations 1:max_lag will have 0/NA values
   error <- rep(0, n_obs)
   eta   <- rep(NA_real_, n_obs)
   
@@ -323,7 +359,7 @@ loglik_barma <- function(
   # 5. CALCULATE THE FINAL LOG-LIKELIHOOD
   # --------------------------------------------------------------------------
   
-  # Extract observations used in likelihood (excluding burn-in period)
+  # Extract observations used in likelihood
   idx_effective <- (max_lag + 1):n_obs
   eta_eff <- eta[idx_effective]
   y_eff   <- y[idx_effective]
@@ -350,7 +386,29 @@ loglik_barma <- function(
     return(-Inf)
   }
   
-  # Return sum of log-likelihood terms
-  final_loglik <- sum(ll_terms)
-  return(final_loglik)
+  # Accumulate log-likelihood before optional penalization
+  sum_ll_terms <- sum(ll_terms)
+  
+  # --------------------------------------------------------------------------
+  # 6. RIDGE PENALIZATION
+  # --------------------------------------------------------------------------
+  if (penalty) {
+    
+    # Penalized log-likelihood per Equation (2) of Cribari-Neto, Costa and
+    # Fonseca (2025, BJPS, Section 2):
+    #   ell_pen(nu) = ell(nu) - (n - a) * lambda_n * ||nu||^2
+    # where lambda_n is computed by .barma_ridge_lambda().
+    # phi and beta are excluded from penalization (see paper, Section 2).
+    lambda <- .barma_ridge_lambda(n_obs, max_lag)
+    
+    # L2 norm of penalized parameters (beta excluded per the paper)
+    l2_norm_sq   <- alpha^2 + sum(varphi^2) + sum(theta^2)
+    penalty_term <- (n_obs - max_lag) * lambda * l2_norm_sq
+    
+    sum_ll_terms <- sum_ll_terms - penalty_term
+    
+  }
+  
+  return(sum_ll_terms)
+  
 }

@@ -5,7 +5,7 @@
 #' Moving Average Models
 #'
 #' @description
-#' Computes the observed Fisher Information Matrix (FIM) of a Beta
+#' Computes the expected Fisher Information Matrix (FIM) of a Beta
 #' Autoregressive Moving Average (BARMA) model. This function also
 #' efficiently returns auxiliary values like fitted values and residuals.
 #' 
@@ -19,9 +19,9 @@
 #' }
 #'
 #' @details
-#' The Fisher Information Matrix is computed from the outer product of
-#' score vectors at the MLE, which provides the observed FIM. The FIM
-#' is used to obtain standard errors via \code{sqrt(diag(solve(FIM)))}.
+#' The expected Fisher Information Matrix is computed analytically using
+#' the trigamma-based expressions from Rocha and Cribari-Neto (2009).
+#' Standard errors are obtained via \code{sqrt(diag(solve(FIM)))}.
 #'
 #' **Non-Diagonal Structure**: Unlike generalized linear models, the FIM
 #' is not block-diagonal due to the coupling introduced by the ARMA
@@ -78,6 +78,16 @@
 #' @param beta
 #' A numeric vector of regression coefficients for \code{xreg} (optional).
 #' Length must match number of columns in \code{xreg}.
+#' 
+#' @param penalty
+#' Logical. If \code{TRUE}, the ridge penalty of Cribari-Neto, Costa and
+#' Fonseca (2025) is added to the Fisher Information Matrix, yielding the
+#' penalized FIM \eqn{K_{\text{pen}}(\boldsymbol{\nu}) = K(\boldsymbol{\nu})
+#' + 2(n-a)\Lambda}, where \eqn{\Lambda =
+#' \text{diag}\{\lambda_n,\ldots,\lambda_n, 0,\ldots,0\}} with
+#' \eqn{\lambda_n = 1/(n-a)^{0.9}} applied to \eqn{\alpha},
+#' \eqn{\boldsymbol{\varphi}}, and \eqn{\boldsymbol{\theta}} only.
+#' Defaults to \code{FALSE}.
 #'
 #' @return
 #' A list containing:
@@ -104,7 +114,12 @@
 #' Rocha, A.V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
 #' moving average models. \emph{TEST}, 26, 451-459.
 #' \doi{10.1007/s11749-017-0528-4}
-#'
+#' 
+#' Cribari-Neto, F., Costa, E., & Fonseca, R.V. (2025). Numerical stability
+#' enhancements in beta autoregressive moving average model estimation.
+#' \emph{Brazilian Journal of Probability and Statistics}, 39(4), 410-437.
+#' \doi{10.1214/25-BJPS645}
+#' 
 #' @seealso
 #' \code{\link{barma}} for model fitting,
 #' \code{\link{loglik_barma}} for log-likelihood computation,
@@ -195,12 +210,13 @@ fim_barma <- function(
     ar   = integer(0),
     ma   = integer(0),
     alpha,
-    varphi,
-    theta,
+    varphi = numeric(0),
+    theta = numeric(0),
     phi,
-    link,
+    link = "logit",
     xreg = NULL,
-    beta = NULL
+    beta = NULL, 
+    penalty = FALSE
 ) {
   
   # --------------------------------------------------------------------------
@@ -217,8 +233,8 @@ fim_barma <- function(
   y_transformed <- linkfun(y)
   
   # Resolve lag vectors to integer(0) if absent
-  ar_lags <- if (length(ar) > 0) ar else integer(0)
-  ma_lags <- if (length(ma) > 0) ma else integer(0)
+  ar_lags <- ar
+  ma_lags <- ma
   
   # Force varphi / theta to numeric(0) when the corresponding component
   # is absent
@@ -227,8 +243,8 @@ fim_barma <- function(
   
   has_xreg <- !is.null(xreg)
   
-  n_ar_params <- length(ar_lags)
-  n_ma_params <- length(ma_lags)
+  n_ar_params <- length(varphi)
+  n_ma_params <- length(theta)
   
   # Named flags for readability throughout the function
   has_ar <- n_ar_params > 0
@@ -537,17 +553,40 @@ fim_barma <- function(
   
   fim[idx_phi, idx_phi] <- K_phiphi
   
-  # Name the matrix rows and columns
-  names_varphi <- if (has_ar) paste0("varphi", ar_lags) else character(0)
-  names_theta  <- if (has_ma) paste0("theta", ma_lags) else character(0)
-  names_beta   <- if (has_xreg) colnames(xreg) else character(0)
-  
-  names_fim <- c("alpha", names_varphi, names_theta, names_beta, "phi")
-  colnames(fim) <- names_fim
-  rownames(fim) <- names_fim
+  # --------------------------------------------------------------------------
+  # 7. PENALIZED FISHER INFORMATION MATRIX
+  # --------------------------------------------------------------------------
+  if (penalty) {
+    
+    # Penalized Fisher information matrix (Cribari-Neto, Costa and Fonseca,
+    # 2025, Section 2):
+    #   K_pen(nu) = K(nu) + 2 * (n - a) * Lambda
+    # where Lambda = diag{lambda_n, ..., lambda_n, 0, ..., 0}, with lambda_n
+    # computed by .barma_ridge_lambda() and applied to (alpha, varphi, theta).
+    # phi and beta are excluded from penalization (see paper, Section 2).
+    lambda <- .barma_ridge_lambda(n_obs, max_lag)
+    
+    # Indicator vector for Lambda: 1 for penalized parameters, 0 otherwise.
+    # diag(penalty_raw) builds the diagonal matrix Lambda.
+    # Order must match fim: (alpha, varphi, theta, beta, phi)
+    penalty_raw <- c(
+      1,                      # alpha
+      rep(1, n_ar_params),    # varphi
+      rep(1, n_ma_params),    # theta
+      rep(0, n_beta_params),  # beta: not penalized
+      0                       # phi:  not penalized
+    )
+    
+    penalty_diag <- diag(penalty_raw)
+    
+    penalty_term <- 2 * (n_obs - max_lag) * lambda * penalty_diag
+
+    fim <- fim + penalty_term
+    
+  }
   
   # --------------------------------------------------------------------------
-  # 7. PREPARE FITTED VALUES AND OUTPUT
+  # 8. PREPARE FITTED VALUES AND OUTPUT
   # --------------------------------------------------------------------------
   
   # Create fitted values as a time series object
@@ -556,6 +595,18 @@ fim_barma <- function(
     start = start(y),
     frequency = frequency(y)
   )
+  
+  # Name the matrix rows and columns
+  names_varphi <- if (has_ar) paste0("varphi", ar_lags) else character(0)
+  names_theta  <- if (has_ma) paste0("theta", ma_lags) else character(0)
+  names_beta <- if (has_xreg) {
+    if (!is.null(colnames(xreg))) colnames(xreg) else 
+      paste0("beta", seq_len(n_beta_params))
+  } else character(0)
+  
+  names_fim <- c("alpha", names_varphi, names_theta, names_beta, "phi")
+  colnames(fim) <- names_fim
+  rownames(fim) <- names_fim
   
   # Prepare output list with all required components
   output_list <- list(

@@ -36,14 +36,14 @@ summary.barma <- function(object, ...) {
     
     # Calculate Std. Errors and p-values
     stderror <- sqrt(diag(vcov))
-    z_zstat <- abs(object$coef / stderror)
-    z_pvalues <- 2 * (1 - pnorm(z_zstat))
+    z_zstat <- object$coef / stderror 
+    z_pvalues <- 2 * (1 - pnorm(abs(z_zstat)))
     
     model_table <- cbind(
-      "Estimate" = round(object$coef, 4),
-      "Std. Error" = round(stderror, 4),
-      "z value" = round(z_zstat, 4),
-      "Pr(>|z|)" = round(z_pvalues, 4)
+      "Estimate" = object$coef,
+      "Std. Error" = stderror,
+      "z value" = z_zstat,
+      "Pr(>|z|)" = z_pvalues
     )
   }
   
@@ -75,7 +75,12 @@ summary.barma <- function(object, ...) {
     aic = aic,
     bic = bic,
     hq = hq,
-    conv = object$conv
+    conv = object$conv,
+    opt = object$opt,
+    opt_method = object$opt_method,
+    opt_bounds = object$opt_bounds,
+    penalty = object$penalty,
+    lambda = object$lambda
   )
   
   # Assign the new class

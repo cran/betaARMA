@@ -1,0 +1,63 @@
+# Safely extract the year from the DESCRIPTION file, with a fallback
+year <- if (!is.null(meta$Date)) {
+  format(as.Date(meta$Date), "%Y")
+} else {
+  format(Sys.Date(), "%Y")
+}
+
+# 1. Primary Package Citation (Dynamic)
+bibentry(
+  bibtype = "Manual",
+  title   = "betaARMA: Beta Autoregressive Moving Average Models",
+  author  = c(
+    person("Everton", "da Costa",
+           role  = c("aut", "cre"),
+           email = "everto.cost@gmail.com"),
+    person("Francisco", "Cribari-Neto", role = c("ctb", "ths")),
+    person("Vinicius T.", "Scher",       role = "ctb")
+  ),
+  year   = year,
+  note   = paste("R package version", meta$Version),
+  url    = "https://CRAN.R-project.org/package=betaARMA",
+  header = "To cite the betaARMA package in publications, please use:"
+)
+
+# 2. PCMLE Methodology (Cribari-Neto, Costa, and Fonseca, 2025)
+bibentry(
+  bibtype  = "Article",
+  title    = paste("Numerical stability enhancements in beta autoregressive",
+                   "moving average model estimation"),
+  author   = c(
+    person("Francisco", "Cribari-Neto"),
+    person("Everton",   "da Costa"),
+    person("Rodney V.", "Fonseca")
+  ),
+  journal  = "Brazilian Journal of Probability and Statistics",
+  year     = "2025",
+  volume   = "39",
+  number   = "4",
+  pages    = "410--437",
+  doi      = "10.1214/25-BJPS645",
+  header   = "If you use ridge penalization (penalty = TRUE), please also cite:"
+)
+
+# 3. Application, Link Functions and Hypothesis Testing (Costa, Cribari-Neto,
+#    and Scher, 2024)
+bibentry(
+  bibtype  = "Article",
+  title    = paste("Test inferences and link function selection in dynamic",
+                   "beta modeling of seasonal hydro-environmental time series",
+                   "with temporary abnormal regimes"),
+  author   = c(
+    person("Everton",       "da Costa"),
+    person("Francisco",     "Cribari-Neto"),
+    person("Vinicius T.",   "Scher")
+  ),
+  journal  = "Journal of Hydrology",
+  year     = "2024",
+  volume   = "638",
+  pages    = "131489",
+  doi      = "10.1016/j.jhydrol.2024.131489",
+  header   = paste("If you use link function selection or hypothesis testing",
+                   "procedures, please also cite:")
+)

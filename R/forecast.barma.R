@@ -56,6 +56,10 @@ forecast.barma <- function(object, h = 6, xreg = NULL, ...) {
         "Please provide `xreg` for forecasting."
       )
     }
+    
+    # Coerce to matrix immediately to prevent nrow() crashing
+    xreg <- as.matrix(xreg)
+    
     # Ensure object has the training xreg to calculate historical deviations
     if (is.null(object$xreg)) {
       stop(
@@ -177,10 +181,10 @@ forecast.barma <- function(object, h = 6, xreg = NULL, ...) {
   }
   
   # --------------------------------------------------------------------------
-  # 4. Format and Return as ts Object
+  # 4. Format and Return as "forecast" Object
   # --------------------------------------------------------------------------
   
-  y_ts <- stats::ts(y)
+  y_ts <- if (stats::is.ts(y)) y else stats::ts(y)
   ts_start <- stats::tsp(y_ts)[2] + (1 / stats::frequency(y_ts))
   ts_freq <- stats::frequency(y_ts)
   
@@ -190,5 +194,20 @@ forecast.barma <- function(object, h = 6, xreg = NULL, ...) {
     frequency = ts_freq
   )
   
-  return(forecast_ts)
+  # Build the standard forecast list
+  res <- list(
+    method    = "betaARMA",
+    model     = object,
+    level     = c(80, 95),
+    mean      = forecast_ts,
+    x         = y_ts,
+    fitted    = stats::fitted(object),
+    residuals = stats::residuals(object)
+  )
+  
+  # Assign the CRAN standard class
+  class(res) <- "forecast"
+  
+  return(res)
+
 }

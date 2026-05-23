@@ -1,0 +1,477 @@
+---
+title: "Application: Modeling Relative Humidity in Brasília"
+author: "Everton da Costa, Francisco Cribari-Neto, and Rodney V. Fonseca"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+bibliography: ../inst/REFERENCES.bib
+vignette: >
+  %\VignetteIndexEntry{Application: Modeling Relative Humidity in Brasília}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse  = TRUE,
+  comment   = "#>",
+  fig.width = 7,
+  fig.height = 3.5,
+  fig.align = "center",
+  warning   = FALSE,
+  message   = FALSE
+)
+```
+
+> **Note:** This vignette requires suggested packages. Install them with:
+> `install.packages(c("ggplot2", "gridExtra", "zoo", "forecast", "scales", "moments"))`
+
+# Introduction
+
+This vignette illustrates a complete $\beta$ARMA modeling workflow applied to
+monthly relative humidity data from Brasília, Brazil, using the `betaARMA`
+package. The analysis has two complementary objectives.
+
+The first objective concerns **numerical stability**. Conditional maximum
+likelihood estimation (CMLE) of $\beta\text{ARMA}$ models can fail in
+practice: Cribari-Neto, Costa, and Fonseca (2025) show, via Monte Carlo
+simulation, that convergence failure rates can reach 18.68% in challenging
+scenarios (e.g., $\beta\text{ARMA}(1,4)$ with $n = 125$).
+Their paper also
+demonstrates, using two empirical datasets, that certain model specifications
+only converge when ridge penalization is applied. A natural question then
+arises: once the penalized estimator (PCMLE) achieves convergence, how
+reliable is the resulting model? Does it produce a well-specified fit that
+passes residual diagnostics? This vignette addresses that question directly
+by presenting a specification for which CMLE fails and PCMLE succeeds, and
+by carrying out a full residual analysis on the penalized model.
+
+The second objective is to present a **full modeling workflow** — from
+exploratory analysis through feature engineering, model fitting, residual
+diagnostics, and out-of-sample forecasting — applied to the complete Brasília
+humidity series. This mirrors the applied methodology of Costa, Cribari-Neto,
+and Scher (2024), published in the *Journal of Hydrology*.
+
+Replication code and data are openly available at
+<https://github.com/Everton-da-Costa/BarmaRidgeBJPS2025>.
+
+
+# Data and Exploratory Analysis
+
+```{r libraries}
+library(betaARMA)
+library(forecast)
+library(ggplot2)
+library(gridExtra)
+library(zoo)
+library(scales)
+library(moments)
+```
+
+```{r config_plot, echo=FALSE}
+# Shared ggplot configuration
+sample_size     <- length(brasilia_ts)
+end_time_series <- time(brasilia_ts)[sample_size] + 1
+
+ggplot_size_font <- 9
+
+ggplot_theme <- theme_minimal() + 
+  theme(
+  legend.position = "bottom",
+  title        = element_text(size = ggplot_size_font),
+  axis.text    = element_text(size = ggplot_size_font),
+  axis.title   = element_text(size = ggplot_size_font),
+  legend.text  = element_text(size = ggplot_size_font),
+  legend.title = element_text(size = ggplot_size_font)
+)
+
+ggplot_scale_y <- scale_y_continuous(
+  breaks = seq(0.0, 1.00, 0.10)
+)
+
+ggplot_scale_x <- scale_x_continuous(
+  breaks = seq(1999, end_time_series, 2),
+  limits = c(1999, end_time_series)
+)
+```
+
+The dataset consists of 306 monthly observations of average relative humidity
+in Brasília, Brazil, covering January 1999 to June 2024. The data were
+obtained from NASA's POWER project. Relative humidity is naturally bounded
+in $(0, 1)$, making it well suited for $\beta$ARMA modeling.
+
+
+# A Case of Numerical Instability
+
+To motivate the penalized estimator, we focus on a specific subsample of the
+Brasília dataset. In Cribari-Neto, Costa, and Fonseca (2025), this subsample was
+used to illustrate convergence failure under standard CMLE, and it was shown
+that ridge penalization successfully restores convergence.
+
+While that paper established the numerical stability of the penalized
+estimator, the objective here is different: to verify the statistical adequacy
+of the penalized fit through residual diagnostics, and to show how this workflow
+can guide model reduction. To that end, we specify a $\beta\text{ARMA}$
+model with $\text{AR} = (10, 18)$, $\text{MA} = (1, 11, 13)$,
+and harmonic regressors.
+
+## Train--Test Split
+
+```{r subsample}
+y_subsample_ts <- window(
+  brasilia_ts,
+  start = c(2006, 02),
+  end   = c(2019, 07)
+)
+
+y_train <- window(
+  y_subsample_ts,
+  end = c(2018, 07)
+)
+
+y_test <- window(
+  y_subsample_ts,
+  start = c(2018, 08)
+)
+```
+
+The figure below shows the full time series with the training period
+delimited by dashed vertical lines.
+
+```{r ggplot_subsample, echo=FALSE}
+len_y_ts        <- length(y_train)
+start_subsample <- time(y_train)[1]
+end_subsample   <- time(y_train)[len_y_ts]
+
+ggplot_subsample <- ggplot(brasilia_df, aes(time, y)) +
+  geom_point(size = 0.5) +
+  geom_line(aes(group = 1)) +
+  geom_vline(xintercept = start_subsample,
+             linetype = "dashed", linewidth = 0.5, color = "red") +
+  geom_vline(xintercept = end_subsample,
+             linetype = "dashed", linewidth = 0.5, color = "red") +
+  labs(x = "Year", y = "Relative humidity (proportion)") +
+  ggplot_scale_x +
+  ggplot_scale_y +
+  ggplot_theme
+```
+
+```{r print_ggplot_subsample, echo=FALSE, fig.cap="Relative humidity in Brasília. Dashed red lines delimit the training period used in the instability analysis."}
+print(ggplot_subsample)
+```
+
+## Descriptive Statistics
+
+```{r descriptive_subsample, echo=FALSE}
+descriptive_sub_df <- data.frame(
+  Min             = min(y_subsample_ts),
+  Max             = max(y_subsample_ts),
+  Median          = median(y_subsample_ts),
+  Mean            = mean(y_subsample_ts),
+  SD              = sd(y_subsample_ts),
+  Skewness        = moments::skewness(y_subsample_ts),
+  Excess_kurtosis = moments::kurtosis(y_subsample_ts)
+)
+descriptive_sub_df <- round(descriptive_sub_df, 2)
+```
+
+```{r print_descriptive_subsample, echo=FALSE}
+knitr::kable(
+  descriptive_sub_df,
+  caption = "Descriptive statistics of the monthly relative humidity in
+  Brasília — subsample (February 2006 to July 2019)."
+)
+```
+
+## Feature Engineering
+
+To capture annual seasonality we include two harmonic regressors,
+$s_t = \sin(2\pi t / 12)$ and $c_t = \cos(2\pi t / 12)$, which together
+represent a smooth annual wave.
+
+```{r regressors}
+freq              <- frequency(y_train)
+n_test            <- length(y_test)
+trend_index_train <- seq_along(y_train)
+trend_index_test  <- (max(trend_index_train) + 1):
+                     (max(trend_index_train) + n_test)
+
+hs_train <- sin(2 * pi * trend_index_train / freq)
+hc_train <- cos(2 * pi * trend_index_train / freq)
+hs_test  <- sin(2 * pi * trend_index_test  / freq)
+hc_test  <- cos(2 * pi * trend_index_test  / freq)
+
+X_train <- cbind(hs = hs_train, hc = hc_train)
+X_test  <- cbind(hs = hs_test,  hc = hc_test)
+```
+
+## Standard CMLE
+
+```{r fit_cmle}
+ar_lags <- c(10, 18)
+ma_lags <- c(1, 11, 13)
+
+fit_cmle <- barma(
+  y       = y_train,
+  ar      = ar_lags,
+  ma      = ma_lags,
+  penalty = FALSE,
+  xreg    = X_train
+)
+```
+
+```{r summary_cmle}
+summary(fit_cmle)
+```
+
+The optimizer failed to converge (`conv = 1`), and the estimates are
+unreliable. Without a penalized alternative, an analyst would have little 
+recourse but to abandon this lag structure and search for a different 
+specification.
+
+## Penalized CMLE (PCMLE)
+
+Applying ridge penalization to the same specification restores convergence.
+
+```{r fit_pcmle}
+fit_pcmle <- barma(
+  y       = y_train,
+  ar      = ar_lags,
+  ma      = ma_lags,
+  penalty = TRUE,
+  xreg    = X_train
+)
+```
+
+```{r summary_pcmle}
+summary(fit_pcmle)
+```
+
+The penalized estimator successfully converges. The ridge penalty value
+$\lambda_n = 1/(n - a)^{0.9}$ is chosen to balance bias and variance, as
+established in Cribari-Neto, Costa, and Fonseca (2025).
+
+This illustrates a practical use case for PCMLE. When standard CMLE presents
+a convergence failure, an analyst might discard the entire lag structure
+without further investigation. By applying PCMLE, convergence is achieved
+and the parameter estimates become available for inspection. 
+Furthermore,
+the diagnostic plots below for the PCMLE fit confirm that the residuals exhibit 
+no serial correlation (Scher, Cribari-Neto, Pumi, and Bayer, 2020),
+indicating that the lag structure adequately captures 
+the dynamics of the series.
+
+```{r diagnostics_pcmle, fig.height=7.0, fig.cap="Diagnostic plots for the PCMLE fit: AR=(10,18), MA=(1,11,13)."}
+plot(fit_pcmle, which = "all")
+```
+
+The observed and fitted values track each other closely. All ACF and PACF
+spikes lie within the confidence bands, and both the Ljung-Box and Monti
+p-values remain consistently above 0.05 across all evaluated lags, providing
+no evidence of residual serial correlation.
+
+Upon reviewing the PCMLE summary, we note that the $\theta_{11}$ estimate
+is not statistically significant (p-value = 0.488). This suggests that the
+MA(11) lag does not contribute meaningfully to the model dynamics. Removing
+it yields the reduced specification $\text{AR} = (10, 18)$,
+$\text{MA} = (1, 13)$, for which the likelihood surface is no longer flat
+and standard CMLE converges. Without PCMLE, the non-significance of
+$\theta_{11}$ would never have been discovered, and the valid underlying
+structure of the series would have remained inaccessible.
+
+## Reduced Model
+
+```{r fit_cmle_reduced}
+ar_lags_reduced <- c(10, 18)
+ma_lags_reduced <- c(1, 13)
+
+fit_cmle_reduced <- barma(
+  y       = y_train,
+  ar      = ar_lags_reduced,
+  ma      = ma_lags_reduced,
+  penalty = FALSE,
+  xreg    = X_train
+)
+```
+
+```{r summary_cmle_reduced}
+summary(fit_cmle_reduced)
+```
+
+The reduced CMLE model converges and all coefficients are statistically
+significant. We proceed with residual diagnostics and forecasting using
+this parsimonious specification.
+
+## Residual Diagnostics
+
+The panels below assess whether the fitted model adequately captures the
+dynamics of the Brasília relative humidity series.
+
+```{r diagnostics_all, fig.height=7.0, fig.cap="Diagnostic plots for the reduced CMLE model AR=(10,18), MA=(1,13)."}
+plot(fit_cmle_reduced, which = "all")
+```
+
+The observed and fitted values track each other closely throughout the
+sample period. All ACF and PACF spikes lie within the confidence bands,
+and both the Ljung-Box and Monti p-values remain consistently above 0.05
+across all evaluated lags, providing no evidence of residual serial
+correlation.
+
+```{r diagnostics_qq, fig.height=4.0, fig.width=4.5, fig.cap="Normal Q-Q plot of quantile residuals for the reduced CMLE model."}
+plot(fit_cmle_reduced, which = "qq")
+```
+
+The quantile residuals fall closely along the reference line within the
+95% confidence band, supporting the normality assumption. One observation
+in the upper tail departs slightly from the line but does not indicate
+a systematic departure from the assumed distribution.
+
+The largest residual corresponds to October 2011 (quantile residual = 4.37), 
+a month that marks the climatological transition from the dry to the rainy 
+season in Brasília — the period of highest interannual humidity variability. 
+This observation coincides with the onset of an extreme drought period 
+documented across Brazil from 2011 onward (Cunha et al., 2019). The second 
+largest residual corresponds to January 2015 (−3.44), coinciding with the 
+strong 2015–2016 El Niño event, which suppressed rainfall across central Brazil.
+These isolated departures reflect genuine meteorological anomalies rather than
+systematic model misspecification.
+
+# Forecasting
+
+```{r forecast_setup}
+# Define the translation dictionary
+month_map <- c(
+  "Jan" = "Jan", "Fev" = "Feb", "Mar" = "Mar", "Abr" = "Apr",
+  "Mai" = "May", "Jun" = "Jun", "Jul" = "Jul", "Ago" = "Aug",
+  "Set" = "Sep", "Out" = "Oct", "Nov" = "Nov", "Dez" = "Dec"
+)
+
+dates     <- as.Date(zoo::as.yearmon(time(y_test)))
+pt_months <- tools::toTitleCase(format(dates, "%b"))
+months    <- unname(month_map[pt_months])
+
+forecasts_df <- data.frame(
+  observed = as.numeric(y_test),
+  forecast = forecast(fit_cmle_reduced, xreg = X_test, h = n_test)$mean,
+  month    = months
+)
+forecasts_df$time <- seq_len(n_test)
+```
+
+```{r ggplot_forecast, echo=FALSE}
+ggplot_forecast <- ggplot(forecasts_df, aes(x = time)) +
+  geom_line(aes(y = forecast, colour = "Forecast"), linewidth = 0.8) +
+  geom_point(aes(y = observed, shape = "Observed"),
+             color = "#00BFC4", size = 3) +
+  scale_colour_manual(name   = " ",
+                      values = c("Forecast" = "#C77CFF")) +
+  scale_shape_manual(name   = " ",
+                     values = c("Observed" = 16)) +
+  scale_x_continuous(breaks = seq_len(n_test),
+                     limits = c(1, n_test),
+                     labels = forecasts_df$month) +
+  scale_y_continuous(breaks = seq(0.3, 1.0, 0.1),
+                     limits = c(0.3, 1.0),
+                     labels = number_format(accuracy = 0.1)) +
+  labs(x = "Time (months)", y = "Relative humidity (proportion)") +
+  ggplot_theme
+```
+
+```{r print_forecast, echo=FALSE, fig.cap="Out-of-sample forecasts from the reduced CMLE model against the observed test data (teal dots)."}
+print(ggplot_forecast)
+```
+
+```{r forecast_accuracy}
+mae  <- function(obs, pred) mean(abs(obs - pred))
+rmse <- function(obs, pred) sqrt(mean((obs - pred)^2))
+
+obs <- forecasts_df$observed
+
+accuracy_table <- data.frame(
+  Model = "betaARMA CMLE (reduced)",
+  MAE   = round(mae(obs,  forecasts_df$forecast) * 100, 2),
+  RMSE  = round(rmse(obs, forecasts_df$forecast) * 100, 2)
+)
+
+knitr::kable(
+  accuracy_table,
+  caption = paste0(
+    "MAE and RMSE ($\\times 100$) over the ",
+    n_test,
+    "-month forecast horizon."
+  )
+)
+```
+
+
+# Conclusion
+
+This vignette illustrated the practical value of PCMLE as a diagnostic tool
+in $\beta$ARMA modeling, using monthly relative humidity data from Brasília.
+
+Standard CMLE failed to converge for the $\beta\text{ARMA}$ model with
+$\text{AR} = (10, 18)$, $\text{MA} = (1, 11, 13)$. Applying ridge penalization (PCMLE) restored convergence and
+made the parameter estimates available for inspection. Residual diagnostics
+on the PCMLE fit confirmed that the lag structure adequately captured the
+series dynamics. Inspection of the PCMLE estimates revealed that
+$\theta_{11}$ was not statistically significant, motivating the reduction to the parsimonious $\beta\text{ARMA}$ model with
+$\text{AR} = (10, 18)$, $\text{MA} = (1, 13)$. The reduced
+CMLE model converged, passed all residual diagnostics, and produced accurate
+out-of-sample forecasts, with all predictions guaranteed to lie in $(0, 1)$.
+
+This workflow — CMLE fails, PCMLE reveals the structure, reduction yields a
+stable CMLE model — demonstrates that PCMLE is not merely a fallback
+estimator but an active analytical tool that can guide model selection in
+challenging estimation scenarios. For the complete simulation study,
+bootstrap procedures, and extended empirical results, we refer the reader to
+Cribari-Neto, Costa, and Fonseca (2025).
+
+
+# References
+
+Costa, E., Cribari-Neto, F., & Scher, V. T. (2024). Test inferences and link
+function selection in dynamic beta modeling of seasonal hydro-environmental
+time series with temporary abnormal regimes. *Journal of Hydrology*, 638,
+131489. <https://doi.org/10.1016/j.jhydrol.2024.131489>
+
+Cribari-Neto, F., Costa, E., & Fonseca, R. V. (2025). Numerical stability
+enhancements in beta autoregressive moving average model estimation.
+*Brazilian Journal of Probability and Statistics*, 39(4), 410--437.
+<https://doi.org/10.1214/25-BJPS645>
+
+Cunha, A. P. M. A., Zeri, M., Deusdará Leal, K., Costa, L., Cuartas, L. A., 
+Marengo, J. A., ... & Cunningham, C. (2019). Extreme drought events over 
+Brazil from 2011 to 2019. *Atmosphere*, 10(11), 642. 
+<https://doi.org/10.3390/atmos10110642>
+
+Rocha, A. V., & Cribari-Neto, F. (2009). Beta autoregressive moving average
+models. *TEST*, 18(3), 529--545.
+<https://doi.org/10.1007/s11749-008-0112-z>
+
+Rocha, A. V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
+moving average models. *TEST*, 26, 451--459.
+<https://doi.org/10.1007/s11749-017-0528-4>
+
+Scher, V. T., Cribari-Neto, F., Pumi, G., & Bayer, F. M. (2020).
+Goodness-of-fit tests for $\beta$ARMA hydrological time series modeling.
+*Environmetrics*, 31(3), e2607.
+<https://doi.org/10.1002/env.2607>
+
+
+
+# Reproducibility
+
+The analysis was conducted in the following computational environment.
+
+```{r session_info, echo=FALSE}
+cat("=================================================================\n")
+cat("Session Information\n")
+cat("=================================================================\n")
+cat("This report was generated at:",
+    format(Sys.time(), "%B %d, %Y at %I:%M %p"), "\n\n")
+print(sessionInfo())
+```

@@ -10,12 +10,13 @@ loglik_barma(
   ar = integer(0),
   ma = integer(0),
   alpha,
-  varphi,
-  theta,
+  varphi = numeric(0),
+  theta = numeric(0),
   phi,
-  link,
+  link = "logit",
   xreg = NULL,
-  beta = NULL
+  beta = NULL,
+  penalty = FALSE
 )
 }
 \arguments{
@@ -53,9 +54,23 @@ Must have the same number of rows as length of \code{y}.}
 
 \item{beta}{A numeric vector of regression coefficients for \code{xreg} (optional).
 Length must match number of columns in \code{xreg}.}
+
+\item{penalty}{Logical. If \code{TRUE}, a ridge penalty is subtracted from the
+conditional log-likelihood, yielding the penalized conditional
+log-likelihood proposed by Cribari-Neto, Costa and Fonseca (2025).
+The penalty term is \eqn{(n - a) \lambda_n \|\boldsymbol{\nu}\|^2},
+where \eqn{\lambda_n = 1/(n - a)^{0.9}} and \eqn{\boldsymbol{\nu}}
+collects \eqn{\alpha}, \eqn{\boldsymbol{\varphi}}, and
+\eqn{\boldsymbol{\theta}} (the precision parameter \eqn{\phi} and
+regression coefficients \eqn{\boldsymbol{\beta}} are excluded).
+Defaults to \code{FALSE}.}
 }
 \value{
-A numeric scalar representing the conditional log-likelihood value.
+A numeric scalar representing the (penalized) conditional log-likelihood
+value. When \code{penalty = FALSE} (default), the standard conditional
+log-likelihood is returned. When \code{penalty = TRUE}, the ridge-penalized
+conditional log-likelihood of Cribari-Neto, Costa and Fonseca (2025) is
+returned instead.
 Returns \code{-Inf} if:
 \itemize{
   \item \code{phi} is non-positive or non-finite
@@ -86,7 +101,7 @@ where \eqn{f} is the Beta density with shape parameters
 \eqn{shape1 = \mu_t * \phi} and \eqn{shape2 = (1-\mu_t)*\phi}.
 
 The linear predictor is constructed as:
-\deqn{\eta_t = \alpha + X_t \beta + \sum_{i=1}^{p} \varphi_i 
+\deqn{\eta_t = \alpha + X_t \beta + \sum_{i=1}^{p} \varphi_i
 (y_{t-i} - X_{t-i}\beta) + \sum_{j=1}^{q} \theta_j \epsilon_{t-j}}
 
 **Important**: This function implements the corrections from the 2017
@@ -163,6 +178,21 @@ This matches the parameter order used by \code{\link{barma}}.
     phi    = 20.0,
     link   = "logit"
   )
+
+  # Example 4: Ridge-penalized log-likelihood for a BARMA(1, 1) model
+  # Uses penalty = TRUE as recommended by Cribari-Neto, Costa and
+  # Fonseca (2025, BJPS) to improve numerical stability.
+  loglik_barma(
+    y       = y_sim_barma11,
+    ar      = 1,
+    ma      = 1,
+    alpha   = 0.0,
+    varphi  = 0.6,
+    theta   = 0.3,
+    phi     = 25.0,
+    link    = "logit",
+    penalty = TRUE
+  )
 }
 
 }
@@ -174,6 +204,11 @@ average models. \emph{TEST}, 18(3), 529-545.
 Rocha, A.V., & Cribari-Neto, F. (2017). Erratum to: Beta autoregressive
 moving average models. \emph{TEST}, 26, 451-459.
 \doi{10.1007/s11749-017-0528-4}
+
+Cribari-Neto, F., Costa, E., & Fonseca, R.V. (2025). Numerical stability
+enhancements in beta autoregressive moving average model estimation.
+\emph{Brazilian Journal of Probability and Statistics}, 39(4), 410-437.
+\doi{10.1214/25-BJPS645}
 }
 \seealso{
 \code{\link{barma}} for model fitting,

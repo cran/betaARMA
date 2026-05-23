@@ -9,47 +9,60 @@ score_vector_barma(
   ar = integer(0),
   ma = integer(0),
   alpha,
-  varphi,
-  theta,
+  varphi = numeric(0),
+  theta = numeric(0),
   phi,
-  link,
+  link = "logit",
   xreg = NULL,
-  beta = NULL
+  beta = NULL,
+  penalty = FALSE
 )
 }
 \arguments{
-\item{y}{A time series object (\code{ts}) with values strictly in (0, 1).}
+\item{y}{A numeric vector representing the time series data, with values
+strictly in (0, 1).}
 
-\item{ar}{A numeric vector specifying the autoregressive (AR) lags.
-Defaults to \code{integer(0)}, which omits the AR component entirely.
-Absence should be expressed by omitting this argument or passing
-\code{integer(0)}.}
+\item{ar}{A numeric vector specifying the autoregressive (AR) lags
+(e.g., \code{c(1, 2)}). Defaults to \code{integer(0)}, which omits the
+AR component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
-\item{ma}{A numeric vector specifying the moving average (MA) lags.
-Defaults to \code{integer(0)}, which omits the MA component entirely.
-Absence should be expressed by omitting this argument or passing
-\code{integer(0)}.}
+\item{ma}{A numeric vector specifying the moving average (MA) lags
+(e.g., \code{1}). Defaults to \code{integer(0)}, which omits the
+MA component entirely. Absence should be expressed by omitting this
+argument or passing \code{integer(0)}.}
 
-\item{alpha}{The intercept parameter.}
+\item{alpha}{The intercept term (numeric scalar).}
 
-\item{varphi}{A numeric vector of AR parameters.
-Absence should be expressed by omitting this argument or passing
-\code{numeric(0)}.}
-
-\item{theta}{A numeric vector of MA parameters.
+\item{varphi}{A numeric vector of autoregressive (AR) parameters.
 Absence should be expressed by omitting this argument or passing
 \code{numeric(0)}.}
 
-\item{phi}{The precision parameter (must be positive).}
+\item{theta}{A numeric vector of moving average (MA) parameters.
+Absence should be expressed by omitting this argument or passing
+\code{numeric(0)}.}
 
-\item{link}{A character string specifying the link function.
-One of \code{"logit"}, \code{"probit"}, \code{"cloglog"},
-or \code{"loglog"}.}
+\item{phi}{The precision parameter of the BARMA model (must be positive and finite).
+Larger values indicate less variance for a given mean.}
 
-\item{xreg}{An optional matrix of external regressors.}
+\item{link}{A character string specifying the link function:
+\code{"logit"} (default), \code{"probit"}, or \code{"cloglog"}.}
 
-\item{beta}{An optional numeric vector of regression coefficients
-corresponding to \code{xreg}.}
+\item{xreg}{A matrix or data frame of static regressors (optional).
+Must have the same number of rows as length of \code{y}.}
+
+\item{beta}{A numeric vector of regression coefficients for \code{xreg} (optional).
+Length must match number of columns in \code{xreg}.}
+
+\item{penalty}{Logical. If \code{TRUE}, the gradient of the ridge penalty of
+Cribari-Neto, Costa and Fonseca (2025) is subtracted from the score
+vector, yielding the penalized score
+\eqn{S_{\text{pen}}(\boldsymbol{\nu}) = S(\boldsymbol{\nu}) -
+2(n-a)\lambda_n \boldsymbol{\nu}}, where \eqn{\lambda_n =
+1/(n-a)^{0.9}} and \eqn{\boldsymbol{\nu}} collects \eqn{\alpha},
+\eqn{\boldsymbol{\varphi}}, and \eqn{\boldsymbol{\theta}}
+(\eqn{\phi} and \eqn{\boldsymbol{\beta}} are excluded).
+Defaults to \code{FALSE}.}
 }
 \value{
 A numeric vector of the same length as the parameter vector,
@@ -131,8 +144,8 @@ Computes the score vector (gradient of the log-likelihood)
     ma     = 1,
     alpha  = 0.0,
     varphi = numeric(0),
-    theta  = 0.6,
-    phi    = 25.0,
+    theta  = 0.3,
+    phi    = 20.0,
     link   = "logit"
   )
 }
